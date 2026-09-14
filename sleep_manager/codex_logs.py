@@ -6,6 +6,7 @@ import re
 import time
 from .job_view import observe_details
 from .activity_view import reset_activity
+from .request_history import recover_request
 
 UUID=re.compile(r'([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})',re.I)
 TERMINAL={'complete','failed','cancelled'}
@@ -78,6 +79,7 @@ class CodexLogs:
                     self.clear_details(session)
                     state['offset']=0
                     state['first']=False
+                    state.pop('request_recovery_turn',None)
                     events.append(self.unknown(session))
                 uncertain=False
                 with path.open('rb') as f:
@@ -121,6 +123,13 @@ class CodexLogs:
                     except (ValueError,TypeError,AttributeError,RecursionError):
                         self.clear_details(session)
                         batch.append(self.unknown(session))
+                info=self.details.setdefault(session,{})
+                turn=info.get('activity_turn','')
+                if not info.get('latest_request') and (uncertain or state['first'] or state.get('request_recovery_turn')!=turn):
+                    # A request may precede the lifecycle tail by many megabytes.
+                    # Restore only a request proven to belong to the latest turn.
+                    info.update(recover_request(path,state['offset'],expected_turn=turn))
+                    state['request_recovery_turn']=turn
                 if state['first']:
                     state['first']=False
                     # Opening the manager must not arm sleep for already finished history.

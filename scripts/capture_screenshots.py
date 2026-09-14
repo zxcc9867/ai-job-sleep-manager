@@ -43,10 +43,10 @@ class PreviewCatalog:
         return {
             'codex:demo-codex-refactoring': dict(title='로그인 오류 수정',project='web-dashboard',latest_request='진행해줘',activity='터미널 명령 실행 중',activity_at=datetime.now(timezone.utc).isoformat(),commentary='세션 만료 처리를 수정했습니다. 지금은 로그인 회귀 테스트로 재발 여부를 확인하고 있습니다.',commentary_at=datetime.now(timezone.utc).isoformat(),plan=[
                 dict(step='오류 원인 확인',status='completed'),
-                dict(step='세션 만료 처리 수정',status='in_progress'),
-                dict(step='회귀 테스트 실행',status='pending')]),
+                dict(step='세션 만료 처리 수정',status='completed'),
+                dict(step='회귀 테스트 실행',status='in_progress')]),
             'claude:demo-claude-tests': dict(title='API 회귀 테스트 추가',project='api-server'),
-            'codex:demo-codex-review': dict(title='검토 작업 · Mencius',project='web-dashboard',parent_id='demo-codex-refactoring',latest_request='로그인 수정 사항을 검토해줘',activity='파일 조회 도구 실행 중',activity_at=datetime.now(timezone.utc).isoformat()),
+            'codex:demo-codex-review': dict(title='검토 작업 · Mencius',project='web-dashboard',parent_id='demo-codex-refactoring',commentary='로그인 수정 코드에서 세션 만료와 재로그인 경계 조건을 검토하고 있습니다.',commentary_at=datetime.now(timezone.utc).isoformat(),activity='파일 조회 도구 실행 중',activity_at=datetime.now(timezone.utc).isoformat()),
         }
 
 

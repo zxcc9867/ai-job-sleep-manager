@@ -3,7 +3,7 @@ from datetime import datetime
 import re
 import time
 
-FIELDS=('latest_request','request_at','commentary','commentary_at','activity','activity_at','activity_history','activity_calls','activity_turn')
+FIELDS=('latest_request','request_at','commentary','commentary_at','activity','activity_at','activity_history','activity_calls','activity_turn','request_turn')
 
 
 def text(value,limit=500):
@@ -29,7 +29,9 @@ def user_message(content):
     parts=[]; available=65536
     for item in blocks:
         if not isinstance(item,dict) or item.get('type')!='input_text' or not isinstance(item.get('text'),str): continue
-        part=item['text'][:available]; parts.append(part); available-=len(part)
+        part=item['text'][:available]
+        if is_context(part): continue
+        parts.append(part); available-=len(part)
         if not available: break
     raw='\n'.join(parts)
     envelope=raw.lstrip().startswith('# Files mentioned by the user:')

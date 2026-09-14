@@ -212,6 +212,25 @@ def group_jobs(rows):
             row['remaining']={'running':'하위 작업 실행 종료 대기','unknown':'하위 작업 상태 확인 필요','waiting':'하위 작업에 답변·승인 필요'}[category]
             row['current_activity']=row['remaining']
             row['reason']='이 작업에서 시작한 하위 작업이 남아 있습니다. 아래 하위 작업의 상태를 확인해 주세요.'
+    # Parent requests are context, never invented direct instructions to a child.
+    for key in order:
+        row=nodes[key]; parent=nodes.get(row['parent_key'])
+        own=row.get('latest_request','최신 지시 미제공')
+        row['parent_request']=''
+        if parent:
+            row['parent_request']=(parent['latest_request'] if parent.get('latest_request') not in (None,'최신 지시 미제공') else parent.get('parent_request',''))
+        row['request_display']=own
+        if own=='최신 지시 미제공' and row['parent_request']:
+            row['request_display']='상위 요청: '+row['parent_request']
+        row['child_work']=[]
+        for child_key in children[key]:
+            child=nodes[child_key]
+            if not child['pending']: continue
+            current=next((p['step'] for p in child.get('plan',[]) if p['status']=='in_progress'),'')
+            row['child_work'].append(dict(title=child['title'],state=child['state'],
+                description=child.get('commentary') or current or child.get('current_activity','현재 활동 기록 미제공'),
+                updated=child.get('activity_updated','갱신 시각 미확인'),
+                commentary_at=child.get('commentary_at','')))
     def sort_key(key):
         r=nodes[key]
         return priority[r['category']],r['project'],r['title'],key

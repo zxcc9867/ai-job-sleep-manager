@@ -259,7 +259,7 @@ class Window:
         for key in previous_keys-wanted:
             if self.table.exists(key): self.table.delete(key)
         for row in visible:
-            values=tuple(row[field] for field in ('tool','latest_request','state','current_activity'))
+            values=tuple(row[field] for field in ('tool','request_display','state','current_activity'))
             text=row['title']
             if row['child_count']: text+=f"  · 하위 {row['child_count']}개"
             if row['is_child'] and not row['parent_key']: text+='  (부모 미확인)'
@@ -284,7 +284,7 @@ class Window:
         self.details.config(state='normal')
         self.details.delete('1.0',tk.END); self.details.insert('1.0',text)
         for line_number,line in enumerate(text.splitlines(),1):
-            tag=('request' if line.startswith('최근 지시:') else 'heading' if line.startswith(('현재 활동:','AI의 최근 설명:','최근 실행 흐름','AI가 공유한 계획:')) else 'muted' if line.startswith(('관측 시점:','설명 기록 시각:','대화 제목:','세션 ID:')) else None)
+            tag=('request' if line.startswith(('최근 지시:','상위 사용자 지시:')) else 'heading' if line.startswith(('현재 활동:','AI의 최근 설명:','최근 실행 흐름','AI가 공유한 계획:','남은 하위 작업')) else 'muted' if line.startswith(('관측 시점:','설명 기록 시각:','대화 제목:','세션 ID:')) else None)
             if tag: self.details.tag_add(tag,f'{line_number}.0',f'{line_number}.end')
         self.details.config(state='disabled')
 
@@ -293,17 +293,26 @@ class Window:
         row=self.job_rows.get(selected[0]) if selected else None
         if not row: return
         self.detail_badge.config(text=row['state'],fg={'running':TEAL,'waiting':AMBER,'unknown':'#f3a8a8'}.get(row['category'],MUTED))
-        lines=['최근 지시: '+row['latest_request'],
-               '현재 활동: '+row['current_activity'],
-               '관측 시점: '+row['activity_updated']]
+        if row['is_child'] and row['parent_request']:
+            lines=['상위 사용자 지시: '+row['parent_request']]
+            if row['latest_request']=='최신 지시 미제공':
+                lines.append('하위 지시 본문은 기록에 제공되지 않았습니다. 아래는 이 에이전트의 공개 설명입니다.')
+            else: lines.append('최근 지시: '+row['latest_request'])
+        else: lines=['최근 지시: '+row['latest_request']]
         if row['commentary']:
             lines.extend(['', 'AI의 최근 설명:',row['commentary']])
             if row['commentary_at']: lines.append('설명 기록 시각: '+row['commentary_at'])
         else:
-            lines.append('AI의 최근 설명: 이 지시에 대한 공개 진행 설명이 아직 없습니다.')
-        if row['activity_history']:
-            lines.extend(['', '최근 실행 흐름 (관측된 도구 요청·응답):'])
-            for item in row['activity_history'][-4:]: lines.append('  · '+item['text'])
+            current=next((p['step'] for p in row['plan'] if p['status']=='in_progress'),'')
+            lines.extend(['', 'AI의 최근 설명:',
+                '공유된 계획의 현재 단계: '+current if current else '이 지시에 대한 공개 진행 설명이 아직 없습니다.'])
+        lines.extend(['', '현재 활동: '+row['current_activity'],'관측 시점: '+row['activity_updated']])
+        if row['child_work']:
+            lines.extend(['', '남은 하위 작업 · 수행 내용:'])
+            for child in row['child_work']:
+                lines.extend(['  · '+child['title']+' — '+child['state'], '    '+child['description']])
+                if child['commentary_at']: lines.append('    설명 기록 시각: '+child['commentary_at'])
+                else: lines.append('    '+child['updated'])
         lines.extend(['', '대화 제목: '+row['title'],row['tool']+'  ·  '+row['project']+'  ·  '+row['state']])
         if row['relation']: lines.append(row['relation'])
         if row['child_count']: lines.append(f"이 작업에 연결된 하위 작업 {row['child_count']}개 · 목록에서 각 상태를 확인하세요.")
@@ -315,6 +324,9 @@ class Window:
                 lines.append('['+marker+'] '+step['step'])
         elif row['category']=='running':
             lines.append('공유된 계획이 생기면 예정·완료 단계도 함께 표시합니다.')
+        if row['activity_history']:
+            lines.extend(['', '최근 실행 흐름 (관측된 도구 요청·응답):'])
+            for item in row['activity_history'][-4:]: lines.append('  · '+item['text'])
         lines.append('세션 ID: '+row['session_id'])
         self.set_detail('\n'.join(lines))
 
