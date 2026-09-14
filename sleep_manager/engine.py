@@ -1,5 +1,6 @@
 """Pure, clock-injected policy. No OS calls and no task contents."""
 from dataclasses import dataclass, field
+from .job_view import project_name
 import math
 
 @dataclass
@@ -8,6 +9,7 @@ class Job:
     session_id: str
     state: str = 'idle'
     turn_id: str = ''
+    project: str = ''
     children: set = field(default_factory=set)
     background: bool = False
     unknown_children: dict = field(default_factory=dict)
@@ -33,13 +35,14 @@ class Decision:
     unknown: int = 0
 
 class Engine:
-    def __init__(self, delay=600, recovery=1800, enabled=True):
+    def __init__(self, delay=600, recovery=1800, enabled=True, action="sleep"):
         self.jobs = {}
         self.delay = self._delay(delay)
         self.recovery = recovery
         self.enabled = enabled
         self.seen_work = False
         self.baseline = None
+        self.set_action(action, 0)
 
     @staticmethod
     def _delay(value):
@@ -74,6 +77,7 @@ class Engine:
             job.child_timestamps[child_id] = max(last_timestamp,timestamp)
         else:
             job.last_timestamp = max(job.last_timestamp, timestamp)
+        if event.get('project'): job.project=project_name(event['project'])
         job.updated = now
         if kind == 'session_start':
             return
@@ -114,6 +118,13 @@ class Engine:
         if 'background_active' in event:
             job.background = bool(event['background_active'])
 
+    def set_action(self, action, now):
+        if action not in ("sleep", "shutdown"):
+            raise ValueError("완료 후 동작은 절전 또는 정상 종료여야 합니다.")
+        if getattr(self, "action", None) != action:
+            self.baseline = None
+        self.action = action
+
     def set_enabled(self, enabled, now):
         self.enabled = bool(enabled)
         self.baseline = None
@@ -141,6 +152,9 @@ class Engine:
             self.baseline = None
             protected = any(now - t < self.recovery for t in lost_since)
             return Decision('unknown' if protected else 'fault', protected, **counts)
+        if self.action == "shutdown" and waiting:
+            self.baseline = None
+            return Decision("waiting", False, **counts)
         if not self.seen_work:
             return Decision('idle', False, **counts)
         if self.baseline is None:

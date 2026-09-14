@@ -20,6 +20,7 @@ import shlex
 import subprocess
 import uuid
 import time
+from .job_view import project_name
 
 
 _COMMON_EVENTS = ('SessionStart', 'SessionEnd', 'UserPromptSubmit', 'PreToolUse',
@@ -93,6 +94,8 @@ def normalize_hook(provider: str, payload: dict) -> dict | None:
     result = dict(provider=provider, session_id=session_id, kind=kind,
                   task_id=task_id, turn_id=_identifier(payload.get('turn_id')),
                   metadata_complete=metadata_complete, timestamp=time.time(), source='hook:'+event)
+    project=project_name(payload.get('cwd'))
+    if project: result['project']=project
     if background_active is not None:
         result['background_active'] = background_active
     return result

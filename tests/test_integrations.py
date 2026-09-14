@@ -21,8 +21,8 @@ class IntegrationTests(unittest.TestCase):
 
     def test_only_minimum_metadata_survives(self):
         before = time.time()
-        result = self.event('codex', 'UserPromptSubmit', turn_id='t1', prompt='secret', cwd='private', transcript_path='private')
-        self.assertEqual({k: v for k, v in result.items() if k != 'timestamp'}, dict(provider='codex', session_id='s-1', kind='start', task_id='', turn_id='t1', metadata_complete=True, source='hook:UserPromptSubmit'))
+        result = self.event('codex', 'UserPromptSubmit', turn_id='t1', prompt='secret', cwd='C:/private/project-name', transcript_path='private')
+        self.assertEqual({k: v for k, v in result.items() if k != 'timestamp'}, dict(provider='codex', session_id='s-1', kind='start', task_id='', turn_id='t1', metadata_complete=True, source='hook:UserPromptSubmit', project='project-name'))
         self.assertGreaterEqual(result['timestamp'], before)
 
     def test_codex_stop_cannot_claim_background_completion(self):

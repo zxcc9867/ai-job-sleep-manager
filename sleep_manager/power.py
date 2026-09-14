@@ -141,6 +141,7 @@ class _NativePower:
             (self.kernel, 'GetTickCount64', [], C.c_uint64),
             (self.kernel, 'GetSystemPowerStatus', [C.POINTER(PowerStatus)], BOOL),
             (self.user, 'GetLastInputInfo', [C.POINTER(LastInput)], BOOL),
+            (self.user, 'ExitWindowsEx', [DWORD, DWORD], BOOL),
             (self.powr, 'IsPwrSuspendAllowed', [], BYTE),
             (self.powr, 'GetPwrCapabilities', [C.POINTER(PowerCapabilities)], BYTE),
             (self.powr, 'SetSuspendState', [BYTE, BYTE, BYTE], BYTE),
@@ -224,6 +225,16 @@ class _NativePower:
                 'battery_present': bool(caps.batteries)}
 
     def suspend(self):
+        self._with_shutdown_privilege(
+            lambda: self._check(self.powr.SetSuspendState(False, False, False), 'SetSuspendState'))
+
+    def shutdown(self):
+        # EWX_POWEROFF only: no FORCE/FORCEIFHUNG, no shell or delayed /f implication.
+        # Success means Windows accepted an asynchronous request, not shutdown completion.
+        self._with_shutdown_privilege(
+            lambda: self._check(self.user.ExitWindowsEx(0x08, 0x80040000), 'ExitWindowsEx'))
+
+    def _with_shutdown_privilege(self, operation):
         # Temporarily enable only SeShutdownPrivilege, then restore its exact
         # prior state on success, error, and return from sleep. No UAC elevation.
         token = HANDLE()
@@ -245,7 +256,7 @@ class _NativePower:
             changed = True
             if error:
                 raise OSError(error, 'SeShutdownPrivilege could not be enabled')
-            self._check(self.powr.SetSuspendState(False, False, False), 'SetSuspendState')
+            operation()
         finally:
             try:
                 if changed:
@@ -256,6 +267,10 @@ class _NativePower:
                         raise OSError(C.get_last_error(), 'RestoreTokenPrivileges failed')
             finally:
                 self.close_handle(token)
+
+
+class PowerActionCancelled(RuntimeError):
+    """Preflight cancelled before any native power transition was attempted."""
 
 
 class WindowsPower:
@@ -342,6 +357,25 @@ class WindowsPower:
                 self.dry_run_requests += 1
             else:
                 self._native.suspend()
+
+    def shutdown(self, before_shutdown: Callable[[], bool] | None = None) -> None:
+        with self._lock:
+            if self._closed or self.required:
+                raise RuntimeError('Clear the active request before attempting shutdown')
+            initial_input = self._native.input_ticks()[1]
+            blockers = self.external_blockers()
+            if blockers:
+                raise RuntimeError('Shutdown deferred: ' + ', '.join(blockers))
+            if before_shutdown is not None and not before_shutdown():
+                raise PowerActionCancelled('Shutdown deferred: job or management state changed')
+            if self._native.input_ticks()[1] != initial_input:
+                raise PowerActionCancelled('Shutdown deferred: new user input during preflight')
+            if self.required or self._closed:
+                raise PowerActionCancelled('Shutdown deferred: management state changed')
+            if self.dry_run:
+                self.dry_run_requests += 1
+            else:
+                self._native.shutdown()
 
     def close(self) -> None:
         with self._lock:

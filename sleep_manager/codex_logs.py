@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 import re
 import time
+from .job_view import observe_details
+from .activity_view import reset_activity
 
 UUID=re.compile(r'([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})',re.I)
 TERMINAL={'complete','failed','cancelled'}
@@ -37,6 +39,8 @@ class CodexLogs:
         self.last_scan=0
         self.last_error=''
         self.pending={}
+        self.details={}
+        self.excluded_sessions=set()
 
     def invalidate_scan(self):
         self.last_scan=0
@@ -55,22 +59,30 @@ class CodexLogs:
                         continue
                     match=UUID.search(p.name)
                     if match:
-                        self.files[p]=dict(offset=0,session=match.group(1),first=True,turn='')
+                        self.files[p]=dict(offset=0,session=match.group(1),first=True,turn='',internal=None)
             except OSError:
                 self.last_error='Codex 실행 기록을 읽을 수 없습니다.'
         for path, state in list(self.files.items()):
             session=state['session']
+            if state.get('internal') is None:
+                state['internal']=self.internal_session(path,session)
+            if state.get('internal'):
+                self.excluded_sessions.add(session)
+                self.details.pop(session,None)
+                continue
             try:
                 size=path.stat().st_size
                 if size==state['offset']:
                     continue
                 if size<state['offset']:
+                    self.clear_details(session)
                     state['offset']=0
                     state['first']=False
                     events.append(self.unknown(session))
                 uncertain=False
                 with path.open('rb') as f:
                     if size-state['offset']>MAX_READ:
+                        self.clear_details(session)
                         f.seek(size-MAX_READ)
                         f.readline()
                         uncertain=True
@@ -82,10 +94,16 @@ class CodexLogs:
                         continue
                     consumed=chunk[:end+1]
                     state['offset']=f.tell()-len(chunk)+end+1
+                if uncertain: self.clear_details(session)
                 batch=[self.unknown(session)] if uncertain else []
                 for raw in consumed.splitlines():
                     try:
                         record=json.loads(raw)
+                        try:
+                            observe_details(self.details.setdefault(session,{}),record)
+                        except Exception:
+                            # Display failures must never consume or suppress lifecycle events.
+                            self.clear_details(session)
                         event=parse_record(record,session)
                         if event and event['kind']=='start':
                             state['turn']=event.get('turn_id','')
@@ -100,7 +118,8 @@ class CodexLogs:
                                 event=dict(provider='codex',session_id=session,kind='running',turn_id=input_turn,timestamp=0,metadata_complete=True,source='codex-local-log')
                         if event:
                             batch.append(event)
-                    except (ValueError,TypeError,AttributeError):
+                    except (ValueError,TypeError,AttributeError,RecursionError):
+                        self.clear_details(session)
                         batch.append(self.unknown(session))
                 if state['first']:
                     state['first']=False
@@ -112,9 +131,34 @@ class CodexLogs:
                 else:
                     events.extend(batch)
             except OSError:
+                self.clear_details(session)
                 self.last_error='Codex 실행 기록 연결이 끊겼습니다.'
                 events.append(self.unknown(session))
         return events
+
+    @staticmethod
+    def internal_session(path,session):
+        """Identify internal approval reviews before reading large transcript tails."""
+        try:
+            with path.open('rb') as stream: raw=stream.readline(1024*1024)
+            if not raw.endswith(b'\n'): return None
+            record=json.loads(raw)
+            if not isinstance(record,dict) or record.get('type')!='session_meta': return False
+            meta=record.get('payload')
+            if not isinstance(meta,dict) or meta.get('id')!=session: return False
+            source=meta.get('source')
+            if isinstance(source,str):
+                if not source.lstrip().startswith('{'): return False
+                source=json.loads(source)
+            if not isinstance(source,dict): return False
+            subagent=source.get('subagent')
+            return isinstance(subagent,dict) and subagent.get('other')=='guardian'
+        except (OSError,ValueError,TypeError,RecursionError): return None
+
+    def clear_details(self,session):
+        info=self.details.setdefault(session,{})
+        info['plan']=[]
+        reset_activity(info)
 
     @staticmethod
     def unknown(session):

@@ -2,11 +2,12 @@
 import json
 import os
 from pathlib import Path
+from .job_view import clean_text, project_name
 import sqlite3
 import time
 import uuid
 
-FIELDS = {'provider','session_id','kind','task_id','turn_id','timestamp','background_active','metadata_complete','source'}
+FIELDS = {'provider','session_id','kind','task_id','turn_id','timestamp','background_active','metadata_complete','source','project'}
 
 def data_directory():
     return Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'AIJobSleepManager'
@@ -18,6 +19,7 @@ class Store:
         self.path=self.root/'events.sqlite3'
         with self.connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT UNIQUE NOT NULL, received REAL NOT NULL, payload TEXT NOT NULL)')
+            db.execute('CREATE TABLE IF NOT EXISTS job_labels (provider TEXT NOT NULL, session_id TEXT NOT NULL, label TEXT NOT NULL, PRIMARY KEY(provider,session_id))')
             db.execute('CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK(id=1), payload TEXT NOT NULL)')
 
     def connect(self):
@@ -29,6 +31,7 @@ class Store:
         safe={k:v for k,v in event.items() if k in FIELDS}
         if safe.get('provider') not in ('codex','claude') or not isinstance(safe.get('session_id'),str) or not safe['session_id']:
             raise ValueError('invalid metadata')
+        if 'project' in safe: safe['project']=project_name(safe['project'])
         payload=json.dumps(safe,ensure_ascii=False,allow_nan=False)
         if len(payload)>8192:
             raise ValueError('metadata too large')
@@ -56,6 +59,20 @@ class Store:
     def save_settings(self, settings):
         with self.connect() as db:
             db.execute('INSERT OR REPLACE INTO settings(id,payload) VALUES (1,?)',(json.dumps(settings,allow_nan=False),))
+
+    def labels(self):
+        with self.connect() as db:
+            return {provider+':'+session:label for provider,session,label in db.execute('SELECT provider,session_id,label FROM job_labels')}
+
+    def set_label(self,provider,session,label):
+        if provider not in ('codex','claude') or not isinstance(session,str) or not session:
+            raise ValueError('Invalid job identity')
+        label=clean_text(label,120)
+        with self.connect() as db:
+            if label:
+                db.execute('INSERT OR REPLACE INTO job_labels VALUES (?,?,?)',(provider,session,label))
+            else:
+                db.execute('DELETE FROM job_labels WHERE provider=? AND session_id=?',(provider,session))
 
     def prune(self):
         with self.connect() as db:

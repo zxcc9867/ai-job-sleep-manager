@@ -3,16 +3,18 @@ import hashlib
 import json
 import time
 from .engine import Engine, Decision
+from .power import PowerActionCancelled
 
 class Controller:
     def __init__(self,store,power,reader,clock=time.monotonic):
         self.store,self.power,self.reader,self.clock=store,power,reader,clock
         settings=store.settings()
         self.engine=Engine(delay=settings.get('delay',600),enabled=settings.get('enabled',True),
-                           recovery=settings.get('recovery',1800))
+                           recovery=settings.get('recovery',1800),action=settings.get('action','sleep'))
         self.seq=0
         self.generation=0
         self.error=''
+        self.shutdown_notice=''
         self.fault_since=None
         self.retry_at=0
         self.last_tick=clock()
@@ -34,6 +36,7 @@ class Controller:
         self.engine.baseline=None
 
     def _accept(self,event):
+        if event.get('provider')=='codex' and event.get('session_id') in getattr(self.reader,'excluded_sessions',set()): return
         event=dict(event)
         if event.get('metadata_complete') is False and event.get('kind') in ('session_end','cancelled','failed'):
             event['kind']='unknown'
@@ -62,6 +65,14 @@ class Controller:
                 break
         for event in self.reader.poll():
             self._accept(event)
+        # Remove previously restored hook state only for positively identified internal sessions.
+        removed=False
+        for session in getattr(self.reader,'excluded_sessions',set()):
+            removed=self.engine.jobs.pop('codex:'+session,None) is not None or removed
+        if removed:
+            self.engine.baseline=None
+            if not self.engine.jobs: self.engine.seen_work=False
+            if not any(j.provider=='codex' for j in self.engine.jobs.values()): self.live_providers.discard('codex')
         # Per-file unknown events isolate reader faults from healthy providers.
 
     def set_presence(self,names):
@@ -103,21 +114,56 @@ class Controller:
             self.status=state
             if state.sleep_due:
                 generation=self.generation
+                action=self.engine.action
+                shutdown_persisted=False
+                shutdown_disarmed=False
                 self.power.set_required(False)
                 def final_check():
+                    nonlocal shutdown_disarmed
                     if hasattr(self.reader,'invalidate_scan'):
                         self.reader.invalidate_scan()
                     self.drain()
                     current=self.engine.tick(self.clock(),self.power.input_idle_seconds())
-                    return generation==self.generation and current.sleep_due and self.engine.enabled
+                    ready=generation==self.generation and current.sleep_due and self.engine.enabled
+                    if ready and action=='shutdown':
+                        # Persistence already finished; no I/O after the final event drain.
+                        self.engine.set_enabled(False,self.clock())
+                        shutdown_disarmed=True
+                    return ready
                 try:
-                    self.power.suspend(before_suspend=final_check)
-                    self.error='관찰 모드: 절전 요청을 기록했습니다.' if self.power.dry_run else ''
+                    if action=='shutdown':
+                        # A settings write may block. Finish it BEFORE the last job/input checks.
+                        self.save(enabled=False)
+                        shutdown_persisted=True
+                        self.power.shutdown(before_shutdown=final_check)
+                        self.shutdown_notice=('관찰 모드: 정상 종료 요청을 기록했습니다. 실제 종료하지 않았습니다.'
+                            if self.power.dry_run else 'Windows에 정상 종료를 요청했습니다. 종료 완료 여부는 확인되지 않았습니다.')
+                        self.status=self.engine.tick(self.clock(),self.power.input_idle_seconds())
+                    else:
+                        self.power.suspend(before_suspend=final_check)
+                    self.error='관찰 모드: 절전 요청을 기록했습니다.' if self.power.dry_run and action=='sleep' else ''
                     self.engine.on_resume(self.clock())
                     self.fault_since=None
-                except Exception:
+                except Exception as exc:
                     # A fresh job/input is a normal cancellation, not a fault.
                     current=self.engine.tick(self.clock(),self.power.input_idle_seconds())
+                    if action=='shutdown' and shutdown_persisted and (isinstance(exc,PowerActionCancelled) or (self.engine.enabled and not current.sleep_due)):
+                        if shutdown_disarmed:
+                            self.engine.set_enabled(True,self.clock())
+                        self.engine.on_resume(self.clock())
+                        self.save()
+                        current=self.engine.tick(self.clock(),self.power.input_idle_seconds())
+                        self.power.set_required(current.required)
+                        self.error=''
+                        self.status=current
+                        return current
+                    if action=='shutdown' and (not self.engine.enabled or current.sleep_due):
+                        self.engine.set_enabled(False,self.clock())
+                        self.save()
+                        self.power.set_required(False)
+                        self.error=str(exc)
+                        self.status=self.engine.tick(self.clock(),self.power.input_idle_seconds())
+                        return self.status
                     if not current.sleep_due:
                         self.power.set_required(current.required)
                         self.status=current
@@ -125,7 +171,8 @@ class Controller:
                     raise
             else:
                 self.fault_since=None
-                self.error=''
+                if state.mode!='paused':
+                    self.error=''
             return self.status
         except Exception as exc:
             self.error=str(exc)
@@ -141,7 +188,16 @@ class Controller:
             self.status=Decision('fault',required,running=state.running,waiting=state.waiting,unknown=state.unknown)
             return self.status
 
+    def set_action(self,action):
+        self.engine.set_action(action,self.clock())
+        self.fault_since=None
+        self.error=''
+        self.shutdown_notice=''
+        self.save()
+
     def set_enabled(self,enabled):
+        self.error=''
+        self.shutdown_notice=''
         self.engine.set_enabled(enabled,self.clock())
         self.fault_since=None
         self.save()
@@ -151,8 +207,8 @@ class Controller:
         self.engine.set_delay(seconds,self.clock())
         self.save()
 
-    def save(self):
-        self.store.save_settings(dict(delay=self.engine.delay,enabled=self.engine.enabled,recovery=self.engine.recovery))
+    def save(self,enabled=None):
+        self.store.save_settings(dict(delay=self.engine.delay,enabled=self.engine.enabled if enabled is None else enabled,recovery=self.engine.recovery,action=self.engine.action))
 
     def close(self):
         self.power.close()
