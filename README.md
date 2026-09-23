@@ -1,188 +1,94 @@
 # AI Job Sleep Manager
 
-**AI가 일하는 동안 PC를 깨어 있게 하고, 작업이 끝나면 설정한 시간 후 절전 또는 정상 종료를 요청하는 Windows 앱입니다.**
+**English** | [한국어](README.ko.md) | [日本語](README.ja.md)
 
-Codex와 Claude Code에 긴 개발 작업을 맡긴 채 자리를 비우는 사용자를 위해 만들었습니다. 앱 창이 열려 있는지보다 **실제로 실행 중인 작업이 있는지**를 기준으로 절전을 관리합니다.
+**Keep your Windows PC awake while AI development jobs run, then request sleep or a normal shutdown after the jobs finish.**
 
-> **개발 상태: 초기 구현 / 실사용 검증 진행 중**
-> 자동 테스트 149개와 Windows 절전 방지 요청의 설정·해제를 확인했습니다. 실제 작업 완료부터 PC 절전·복귀까지 이어지는 전체 과정과 네 가지 대상 환경의 모든 시나리오는 아직 검증되지 않았습니다. 현재 버전을 검증이 끝난 야간 무인 운영용 제품으로 보지는 않습니다.
+For developers who leave Codex or Claude Code working while they step away. The app watches observed job activity rather than treating an open AI window as an active job.
 
-![AI Job Sleep Manager 메인 화면: 진행 중인 작업 2개와 하위 작업 1개를 구분해 표시](docs/images/running.png)
+> **Status: early implementation; real-world validation in progress.** 195 automated tests pass. Building and starting the Windows app have been verified in observation mode. Actual PC sleep/resume/shutdown and complete unattended workflows across all target environments have not been verified.
 
-*실제 프로그램 UI를 관찰 모드에서 촬영한 화면입니다. `demo-` 세션은 기능 설명용 예시 데이터이며, 실제 AI 작업 수행이나 절전 성공을 증명하는 화면은 아닙니다. 아래 화면도 같은 방식으로 촬영했습니다.*
+![Dashboard showing main jobs, child jobs and power status](docs/images/running.png)
 
-## 목차
+*Screenshots show the real Korean UI with isolated demonstration data. They do not show private conversations or prove successful PC sleep/shutdown. README language selection does not change the app's UI language.*
 
-- [어떤 문제를 해결하나요?](#어떤-문제를-해결하나요)
-- [핵심 기능](#핵심-기능)
-- [대상 환경과 현재 지원 상태](#대상-환경과-현재-지원-상태)
-- [빠른 시작](#빠른-시작)
-- [처음 연결하고 사용하는 순서](#처음-연결하고-사용하는-순서)
-- [동작 규칙](#동작-규칙)
-- [데이터와 설정](#데이터와-설정)
-- [문제 해결](#문제-해결)
-- [개발 및 실행 파일 빌드](#개발-및-실행-파일-빌드)
-- [검증 현황과 알려진 한계](#검증-현황과-알려진-한계)
-- [프로젝트 구조](#프로젝트-구조)
+## Contents
 
-## 어떤 문제를 해결하나요?
+- [Features](#features)
+- [Supported environments](#supported-environments)
+- [Quick start](#quick-start)
+- [Connect and configure](#connect-and-configure)
+- [Observation and actual power control](#observation-and-actual-power-control)
+- [Sleep and shutdown rules](#sleep-and-shutdown-rules)
+- [Local data and privacy](#local-data-and-privacy)
+- [Troubleshooting](#troubleshooting)
+- [Development and packaging](#development-and-packaging)
+- [Verification and limitations](#verification-and-limitations)
 
-장시간 AI 작업을 맡길 때 일반적인 전원 설정만으로는 두 가지 문제가 생깁니다.
+## Features
 
-| 상황 | 겪는 문제 | 이 프로그램의 접근 |
+### Understand which jobs remain
+
+The dashboard separates main jobs from child jobs, with counts for running, awaiting input, unknown and completed states. Expand a parent to see its children; select a row to read the latest instruction and public progress explanation. Completed jobs are hidden by default and can be shown with the checkbox.
+
+- **Instruction → activity:** distinguish the conversation title from your latest instruction, such as “continue,” and the observed work, such as reading a file or running a command.
+- **Public updates and timestamps:** show the AI's most recent public response, the last observed activity and a short tool-activity history. Older activity is marked as awaiting new records; silence is not treated as completion.
+- **Codex plans:** show steps only when Codex explicitly shares a supported plan. Progress percentages and remaining time are not invented.
+- **Child work:** confirmed Codex parent IDs connect related jobs. If a child's direct instruction is unavailable, a known parent's instruction is labeled separately. Remaining child work can be read from the parent detail panel.
+- **Clean instructions:** attachment headers and known internal context messages are excluded. Image-only messages receive an attachment label. Confirmed internal Codex guardian approval sessions are excluded from development-job counts.
+- **Names:** Codex titles and project names come from local metadata. You can assign a custom name with `이름 지정` (Name). Claude supports the project name and custom names; automatic Claude conversation titles are not implemented.
+
+![Latest instruction and public progress detail](docs/images/activity.png)
+
+### Current connections and historical unconfirmed records
+
+Unfinished records restored when the app starts are separated from the current list when there is no current connection evidence. Use **과거 미확인 기록 보기** (Show historical unconfirmed records) to inspect them. The notice shows how many are hidden and explicitly states that they still block automatic power transitions.
+
+**연결 다시 확인** (Recheck connections) reads new lifecycle events and checks Claude's local session registry. A Claude connection is confirmed only when the session ID, PID and exact Windows process creation time match; stale PID files and reused PIDs do not prove a connection. A connected process is not evidence that its job is running or finished. The selected detail shows connection evidence and the last status-event time. New events bring a restored job back into the current list. Active jobs are never hidden just because they are old.
+
+This is a display separation, not deletion or automatic completion. Missing/inaccessible registry data remains unconfirmed. The existing unknown-state power blocker is preserved; hiding an old record does not enable shutdown. The app does not automatically discard unresolved background jobs.
+
+### Claude Code task content
+
+For Claude sessions already observed through hooks, the app matches the session ID to a local file under `.claude/projects/*/<session-id>.jsonl`. It shows the latest user instruction, the latest public assistant text, and observed tool activity such as file reads, edits, searches and terminal commands.
+
+![Claude instruction and public response, loaded through the display reader](docs/images/claude.png)
+
+- Tool results, injected metadata and private thinking blocks are not displayed as user instructions. A new instruction clears the previous response.
+- Transcript files alone do not create running jobs or establish completion. Hooks remain responsible for Claude lifecycle state.
+- Missing, unreadable or unmatched transcripts are left unavailable. Reads are bounded to the most recent 32 MiB per file, with a 64 MiB read budget per refresh. A user-message boundary must be found before responses are shown.
+- When a new prompt hook arrives before its transcript entry, the old request is withheld, allowing a two-second timestamp difference between hook and transcript records.
+- Claude's latest public text can be a final answer. Its presence does not mean that the job is still running or has finished.
+- Claude automatic titles, detailed plans and child-agent transcript content are not implemented. Remote transcripts are not fetched.
+
+### Readable controls and saved-setting feedback
+
+The app uses larger Korean fonts, stronger text contrast, wider rows and additional line spacing. Choose `기본 / 크게 / 아주 크게` (Default / Large / Extra large) under `전원 설정 → 글자 크기` (Power settings → Text size). Text size applies immediately, survives restarts and does not change power settings.
+
+Wide windows show the job list and detail side by side; narrow windows stack them. Scroll the page for controls below the fold, and use the list's horizontal scrollbar or resize columns for long titles.
+
+After `설정 저장` (Save settings), a checkmark, timestamp and saved values appear near the button. Edited values are labeled unsaved, while the header continues to show the applied policy. Failed saves retain the previous policy. Saving a time/action does not change the execution mode.
+
+![Mode selection, saved values and readable settings](docs/images/settings.png)
+
+## Supported environments
+
+The target is **local, native Windows AI development work**.
+
+| Environment | Integration | Verification scope |
 | --- | --- | --- |
-| Windows 자동 절전 사용 | 자리를 비우면 개발 작업 도중 PC가 절전될 수 있음 | 실행 중인 작업을 감지한 동안 시스템 자동 절전 방지 |
-| AI 앱의 상시 절전 방지 사용 | 작업이 끝나도 앱이 열려 있으면 PC가 계속 켜질 수 있음 | 모든 작업이 완료·입력 대기가 되면 설정 시간 후 절전 요청 |
-| 여러 창·터미널에서 동시 작업 | 어느 작업이 아직 실행 중인지 일일이 확인해야 함 | 관측된 Codex·Claude Code 작업 상태를 한 화면에서 집계 |
+| Codex desktop | Hooks and local lifecycle logs | Running jobs observed; full completion/wait/resume workflow pending |
+| Claude Code in Claude desktop | Claude Code hooks; matching local transcripts for display | Desktop end-to-end workflow pending |
+| Codex CLI in a VS Code terminal | Hooks and local lifecycle logs | Separate CLI lifecycle observed; normal completion validation pending |
+| Claude Code in a VS Code terminal | Hooks; matching local transcripts for display | Hook reception and local content extraction verified separately; complete VS Code workflow pending |
 
-예를 들어 Codex의 리팩터링과 Claude Code의 테스트를 동시에 실행하면, 한쪽이 끝나도 다른 작업이 실행 중인 동안 보호합니다. 마지막 실행 작업이 끝나면 사용자가 정한 대기 시간을 세기 시작합니다.
+Ordinary Claude chat, Cowork, browser chat, WSL and remote machines are outside automatic connection support. An implemented adapter does not mean every workflow is verified. The app does not execute AI tasks, approve permissions or deploy your projects.
 
-이 앱은 AI 작업을 실행하거나 승인하지 않습니다. 작업 지시, 권한 승인, 배포 여부는 기존 AI 도구에서 결정합니다.
+## Quick start
 
-## 핵심 기능
+Requirements: Windows, local Codex or Claude Code, and **Python 3.10+ with Tkinter** for source execution. No external Python package is required at runtime; no AI API key or server account is needed by this app.
 
-### 1. 무엇이 남았는지 알 수 있는 작업 대시보드
-
-상단 카드에서 **진행 중인 메인 작업 수, 진행 중인 하위 작업 수, 절전까지 남은 시간**을 확인할 수 있습니다. 응답 필요·확인 필요·완료 개수도 메인 작업과 하위 작업으로 나누어 표시합니다. 왼쪽 목록에는 **대화 제목, 최근 지시, 상태**가 표시되고, 오른쪽 패널에서 **현재 활동과 AI의 진행 설명**을 확인합니다. 세션 ID는 선택한 작업의 상세 정보에서 확인합니다.
-
-- 관측된 작업 중 하나라도 실행 중이면 시스템 자동 절전을 방지합니다.
-- 지원 이벤트로 확인한 하위 작업도 상태 판단에 반영합니다.
-- 입력 대기 작업이 있어도 다른 작업이 실행 중이면 카운트다운을 시작하지 않습니다.
-- 화면 꺼짐은 허용합니다. 모니터를 계속 켜 두는 프로그램은 아닙니다.
-
-메인 화면은 **진행 중인 작업 2개 · 하위 작업 1개**인 예시입니다. Mencius는 로그인 오류 수정 작업이 생성한 검토 에이전트이므로 별도의 메인 작업으로 세지 않습니다.
-
-- **내부 승인 검토 제외:** Codex가 도구 실행 승인을 평가하는 내부 guardian 세션은 개발 작업으로 집계하지 않습니다. 원본 메타데이터로 확인하며, 실제 개발 하위 에이전트는 계속 표시·감시합니다.
-- **부모 아래에 묶기:** 작업명 왼쪽 화살표를 눌러 하위 작업을 접거나 펼칩니다. 선택한 하위 작업의 상세에는 상위 작업명이 표시됩니다.
-- **부모가 먼저 끝나도 표시:** 하위 작업이 남아 있으면 부모 그룹은 “하위 작업 중” 등으로 유지합니다. 하위 작업의 실행·응답 대기·확인 필요 상태를 계속 확인할 수 있습니다.
-- **관계가 확인된 작업만 연결:** Codex가 제공한 부모 ID를 사용합니다. 부모가 목록에 없으면 “부모 미확인” 하위 작업으로 표시합니다. 관계 정보가 제공되지 않은 세션은 임의로 묶지 않습니다.
-
-- **남은 작업 중심:** 실행 중·응답 필요·확인 필요 작업을 기본 표시합니다. 완료·연결된 작업은 체크박스로 함께 볼 수 있습니다.
-- **첨부 메시지:** 파일 목록과 자동 안내문을 제외하고 실제 요청 문장만 표시합니다. 이미지만 보내면 “이미지 첨부 · 텍스트 지시 없음”으로 표시하며 이미지에서 요청을 추측하지 않습니다.
-- **문맥 전달문 구분:** Codex의 내부 승인 평가용 대화 기록 전달문은 사용자 지시로 표시하지 않습니다.
-- **큰 로그의 지시 복구:** 최근 로그에 지시가 없으면 최대 32MiB까지 거슬러 읽고 최신 턴의 시작 경계를 확인한 경우에만 지시를 복구합니다. 이전 턴의 지시나 대화 제목으로 채우지 않습니다. 이 복구는 표시 정보에만 적용되며 작업 완료·전원 판단을 변경하지 않습니다.
-- **요청과 하위 수행 내용 연결:** 부모를 선택하면 남은 하위 작업별 공개 설명을 함께 보여 줍니다. 하위 작업의 직접 지시 본문이 제공되지 않으면 확인된 부모 관계의 **상위 사용자 지시**를 별도로 표시합니다. 상위 요청을 하위 에이전트가 직접 받은 지시로 표현하지 않습니다.
-- **최신 지시와 활동:** 오래된 대화 제목과 현재 요청을 분리합니다. `진행해줘`라고 보냈다면 최근 지시에는 그 문장을 표시하고, 현재 활동에는 터미널 명령 실행·파일 수정·도구 응답 수신 등 관측된 활동을 표시합니다.
-- **AI의 최근 설명:** 선택 상세에서 AI가 사용자에게 공개한 진행 설명과 기록 시각을 보여 줍니다. 내부 추론이나 명령 출력 원문을 표시하지 않습니다. 최근 도구 요청·응답 흐름도 최대 6개만 메모리에 보관합니다.
-- **갱신 상태:** 마지막 활동이 2분 넘게 갱신되지 않으면 “새 활동 기록 대기”로 표시합니다. 완료로 추정하지 않습니다. 새 턴이나 로그 손실 시 이전 지시·활동을 비우며, 최신 지시를 찾지 못하면 미제공으로 안내합니다.
-- **작업 이름:** Codex의 로컬 제목 색인과 데이터베이스에서 제목과 프로젝트를 읽습니다. 제목 없는 하위 작업은 제공되는 에이전트 이름·역할로 표시합니다.
-- **남은 단계:** Codex가 실제로 공유한 `update_plan`이 있으면 현재 단계와 완료/전체 단계 수, 예정 목록을 보여 줍니다. 계획이 없더라도 관측된 도구 활동과 AI의 공개 진행 설명을 표시합니다. 진행률·완료 시각을 추측하지 않습니다.
-- **집중형 대시보드:** 짙은 남색 바탕과 민트색 강조, 상태별 색상과 텍스트를 사용합니다. 목록과 상세를 나란히 배치하여 선택한 작업을 바로 읽을 수 있습니다.
-- **전원 설정:** 상단 버튼에서 시간·절전/종료 선택·도구 연결·연결 해제·진단을 펼칩니다.
-- **작은 화면:** 창 높이는 화면에 맞춰 열립니다. 패널 하단이 보이지 않으면 오른쪽 바깥 스크롤바나 화면 여백에서 마우스 휠로 내려가세요.
-- **선택 상세:** 목록을 클릭하면 전체 작업명, 상태 설명, 진행/예정/완료 단계, 세션 ID를 확인할 수 있습니다. 긴 상세 내용은 스크롤할 수 있습니다.
-- **이름 지정:** 자동 제목을 찾지 못했거나 구분하기 어려우면 선택한 작업에 직접 이름을 붙일 수 있습니다. 빈 이름을 저장하면 원래 표시로 돌아갑니다.
-
-![최신 지시와 AI의 공개 진행 설명을 구분한 상세 화면](docs/images/activity.png)
-
-*예시 데이터로 촬영한 실제 앱 화면입니다.*
-
-제목·최신 지시·활동·계획은 표시용입니다. 계획에 모든 단계가 완료로 적혀 있어도 작업 종료 이벤트가 확인될 때까지 실행 중으로 처리합니다. 새 턴이나 로그 읽기 누락이 감지되면 이전 계획을 비웁니다. 원래 AI 앱의 상태와 세부 계획 제공 여부에 따라 표시 가능한 정보가 다릅니다. Claude Code는 현재 프로젝트 폴더명과 사용자 지정 이름을 지원하며 자동 제목·최신 지시·공개 진행 설명·세부 계획은 제공하지 않습니다. 현재 이 정보의 자동 표시는 Codex 로컬 로그에 한정됩니다.
-
-### 2. 완료·입력 대기 후 설정 시간에 절전 (기본값)
-
-상단 **전원 설정**을 펼친 뒤 **작업이 끝나면 [숫자] 분 후 [절전 / 정상 종료]**에서 시간을 지정하고 **설정 저장**을 누릅니다. 패널을 열거나 닫기만 하면 설정은 변경되지 않습니다.
-
-| 항목 | 동작 |
-| --- | --- |
-| 기본 대기 시간 | 10분 |
-| 설정 범위 | 1~120분, UI에서 정수 입력 |
-| 카운트다운 시작 | 실행 작업이 없고 나머지 상태가 완료·입력 대기 등으로 확인된 경우 |
-| 대기 중 새 작업·작업 재개 | 절전 예약 취소, 작업 보호로 전환 |
-| 대기 중 마우스·키보드 입력 | 마지막 입력 시점부터 설정 시간 전체를 다시 계산 |
-| 대기 중 시간 설정 변경 | 적용 시점부터 새 대기 시간 계산 |
-
-![부모 실행이 끝나고 하위 작업이 응답을 기다리는 카운트다운 화면](docs/images/countdown.png)
-
-*실행 중인 작업이 0개가 되어 절전 대기 중인 예시입니다. 사람이 답해야 하는 상태로 확인된 작업은 절전 대기 대상에 포함됩니다.*
-
-설정한 시간이 지나기 전 Windows가 자동 절전하지 않도록 카운트다운 중에도 보호합니다. 만료 직전에 새 작업과 사용자 입력을 다시 확인하고, 외부 전원 요청·권한에 문제가 없을 때 절전을 요청합니다.
-
-### 3. 자동 관리 일시 중지·재개
-
-**일시 중지**를 누르면 예약과 이 앱의 절전 방지 요청을 해제합니다. 이후에는 Windows의 기존 전원 정책을 따릅니다. 다시 **자동 관리 재개**를 누르면 작업 상태에 따른 관리로 돌아갑니다.
-
-![자동 관리가 중지된 화면과 자동 관리 재개 버튼](docs/images/paused.png)
-
-- 일시 중지는 AI 작업 자체를 멈추는 기능이 아닙니다.
-- 중지 여부는 저장되므로 앱을 다시 실행해도 유지됩니다.
-- 창을 최소화하면 관리를 계속합니다.
-- 창을 닫으면 이 앱의 절전 방지를 해제하고 종료합니다.
-- 현재 시스템 트레이 상주나 Windows 로그인 시 자동 실행 기능은 없습니다.
-
-### 4. 감지 불확실성과 절전 보류 표시
-
-연결이 끊기거나 작업 종료를 판단할 증거가 부족하면 **확인 필요** 상태를 표시합니다.
-
-![작업 상태를 확인 중이며 복구 유예를 적용하는 화면](docs/images/unknown.png)
-
-다른 실행 작업이 없는 상태에서 불확실성이 계속되면 기본 30분 동안 복구를 기다립니다. 유예가 지나면 자체 절전 요청 없이 이 앱의 보호를 해제하고 Windows 정책을 따릅니다. 따라서 이 상태에서는 진행 중 작업 보호가 보장되지 않으며, Windows가 절전 안 함으로 설정되어 있으면 PC가 계속 켜질 수 있습니다.
-
-다른 앱이 절전을 막거나 전원 요청 목록 조회에 실패하면 절전을 보류하고 약 30초 간격으로 다시 확인합니다. 이유는 **진단**에서 확인할 수 있습니다.
-
-### 5. 도구 연결·해제와 진단
-
-상단 **전원 설정**을 펼치면 도구 연결과 진단 버튼을 사용할 수 있습니다.
-
-| 버튼 | 기능 |
-| --- | --- |
-| **도구 연결** | 기존 설정을 백업한 뒤 Codex·Claude Code 관측용 hooks 추가 |
-| **연결 해제** | 현재 실행 경로와 일치하는 관측용 hooks 제거 및 자동 관리 중지 |
-| **진단** | 전원 기능, 관리자 여부, 최근 이벤트, 감지 상태, 오류 및 데이터 위치 표시 |
-| **관리자 권한으로 열기** | 현재 앱을 닫고 같은 데이터 위치로 관리자 재실행. 일반 실행 모드에서 비관리자일 때 표시 |
-
-설정 저장 성공과 실제 연결 성공은 다릅니다. **도구 연결 후 새로운 AI 작업의 이벤트가 수신되는지** 확인해야 합니다.
-
-### 6. 작업 완료 후 정상 종료 선택
-
-**전원 설정 → 시간 입력 → 정상 종료 선택 → 설정 저장** 순서로 설정합니다. 기본값은 절전이며 기존 설정은 그대로 절전으로 읽습니다. 선택한 동작은 앱을 다시 실행해도 유지됩니다.
-
-![모든 작업 완료 후 정상 종료를 준비하는 화면](docs/images/shutdown.png)
-
-*실제 UI에 예시 완료 이벤트를 넣어 촬영한 화면입니다. 실제 PC를 종료한 결과가 아닙니다.*
-
-| 항목 | 절전 | 정상 종료 |
-| --- | --- | --- |
-| 실행 중인 AI 작업·하위 작업 | 보호, 예약 취소 | 보호, 예약 취소 |
-| 입력·승인 대기가 남음 | 설정 시간 후 절전 대상 | 종료 예약을 만들지 않고 Windows 기존 절전 정책 허용 |
-| 상태 확인 필요 | 종료로 간주하지 않음 | 종료 예약 금지 |
-| 모든 작업 실행 종료가 확인됨 | 설정 시간 후 절전 요청 | 설정 시간 후 Windows에 정상 종료 요청 |
-| 대기 중 새 작업·사용자 입력 | 예약 취소·시간 초기화 | 예약 취소·시간 초기화 |
-| 요청 후 | 복귀 시 다시 상태 확인 | 자동 관리 중지. 다시 사용하려면 수동 재개 |
-
-정상 종료는 Windows의 `ExitWindowsEx(EWX_POWEROFF)`를 사용합니다. `EWX_FORCE`, `EWX_FORCEIFHUNG`, 프로세스 강제 종료는 사용하지 않습니다. 앱들은 Windows의 종료 통지를 처리하며, 저장 확인이나 종료 차단이 있으면 사용자 처리가 필요하거나 종료가 취소될 수 있습니다. 자세한 동작은 [Microsoft ExitWindowsEx 문서](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-exitwindowsex)를 참고하세요.
-
-**이 프로그램이 모든 앱의 문서를 자동 저장하거나 데이터 보존을 보장하지는 않습니다.** 다른 앱의 정상 종료 처리와 Windows 정책을 따릅니다. 관리 대상 밖의 서버·다운로드·다른 사용자 세션의 모든 작업이 끝났는지도 보장하지 않습니다.
-
-종료 직전에 새 작업·입력·외부 전원 요청을 다시 확인합니다. 요청 직전 자동 관리를 중지한 상태를 저장하므로, Windows 종료가 취소되거나 다음에 앱을 실행해도 자동 종료를 반복하지 않습니다. 권한 오류 등으로 요청이 보류된 경우에도 원인을 확인한 뒤 **자동 관리 재개**를 눌러야 합니다. `Windows에 정상 종료를 요청했습니다`는 요청 수락을 뜻하며 실제 전원 꺼짐 확인은 아닙니다.
-
-현재 자동 테스트와 관찰 모드만 검증했으며, 실제 정상 종료 및 저장 확인 앱에 의한 차단은 아직 실사용 검증하지 않았습니다.
-
-## 대상 환경과 현재 지원 상태
-
-대상은 **Windows 네이티브 환경에서 실행되는 로컬 AI 개발 작업**입니다.
-
-| 대상 환경 | 구현 접근 | 현재 검증 상태 |
-| --- | --- | --- |
-| Codex 데스크톱 앱 | hooks와 로컬 세션 생애주기 기록 관측 | 실행 중 작업 관측 확인. 전체 완료·대기·재개 흐름 미검증 |
-| Claude 데스크톱 앱의 Claude Code | Claude Code hooks | 실제 데스크톱 전체 흐름 미검증 |
-| VS Code 터미널의 Codex CLI | hooks와 로컬 세션 기록 관측 | 별도 CLI 생애주기 관측. 모델·CLI 버전 문제로 정상 완료 미검증 |
-| VS Code 터미널의 Claude Code | Claude Code hooks | 별도 CLI 시작·실패·종료 수신 확인. 정상 완료 및 VS Code 내 전체 흐름 미검증 |
-
-일반 Claude 채팅, Cowork, 브라우저 채팅, 원격 머신, WSL은 현재 자동 연결 대상이 아닙니다. 위 네 환경도 **지원 목표와 어댑터 구현 범위**이며, 모두 검증이 끝났다는 의미가 아닙니다.
-
-## 빠른 시작
-
-### 준비물
-
-- Windows PC와 해당 PC에서 실행되는 Codex 또는 Claude Code.
-- 소스 실행: **Python 3.10 이상과 Tkinter**. Windows용 Python 설치 시 Tcl/Tk 지원이 포함되어 있어야 합니다.
-- 저장소를 내려받으려면 Git 또는 GitHub의 **Code → Download ZIP** 사용.
-- 앱 자체에는 별도 AI API 키나 서버 계정이 필요하지 않습니다. AI 도구의 로그인·사용량은 각 도구에서 관리합니다.
-
-### 소스에서 먼저 관찰 모드로 실행
-
-PowerShell에서 실행합니다.
+In PowerShell:
 
 ```powershell
 git clone https://github.com/zxcc9867/ai-job-sleep-manager.git
@@ -190,157 +96,158 @@ cd ai-job-sleep-manager
 python app.py --dry-run
 ```
 
-저장소가 비공개이면 접근 가능한 GitHub 계정으로 인증해야 합니다. ZIP으로 내려받았다면 압축을 풀고 해당 폴더에서 마지막 명령을 실행합니다.
+Alternatively, download and extract GitHub's **Code → Download ZIP**, then run the last command from that folder. Check Tkinter with `python -m tkinter` if needed.
 
-`--dry-run`은 **절전 방지 요청과 실제 절전·종료를 수행하지 않습니다.** 화면 상단의 `관찰 모드 · 실제 절전/종료 없음` 표시를 확인하세요. 관찰 모드는 기존 Windows 자동 절전도 막지 않습니다. **도구 연결** 버튼은 관찰 모드에서도 실제 설정 파일을 수정합니다.
+`--dry-run` starts **observation mode**: no sleep-prevention request, sleep or shutdown is performed. Windows can still sleep according to its own policy. You can explicitly enable actual power control from the app. The Connect button still modifies hook configuration in observation mode.
 
-런타임 외부 Python 패키지는 필요하지 않습니다. `python -m tkinter`로 Tkinter 설치 여부를 확인할 수 있습니다.
-
-### 일반 실행
-
-관찰 모드 창을 닫은 뒤 실행합니다.
+To start directly with actual power control, close any instance using the same data directory and run:
 
 ```powershell
 python app.py
 ```
 
-또는 `launch.cmd`를 더블클릭합니다. `launch.cmd`는 빌드된 실행 파일이 있으면 그것을 실행하고, 없으면 소스 앱을 실행합니다.
+`launch.cmd` starts the packaged app if available, otherwise the source app. Without `--dry-run`, it starts actual power control. The Git repository does not include executable bundles. Build the folder-based app using the instructions below; there is currently no installer, auto-update system or published executable release download.
 
-**Git 저장소에는 실행 파일과 Python 번들을 포함하지 않습니다.** Python 설치 없이 사용할 폴더형 실행 파일은 [빌드 절차](#개발-및-실행-파일-빌드)로 만들 수 있습니다. 현재 설치 프로그램이나 GitHub Release 다운로드는 제공하지 않습니다.
+## Connect and configure
 
-## 처음 연결하고 사용하는 순서
+1. Choose a permanent program location; hook configuration includes that path.
+2. Start in observation mode and open `전원 설정` (Power settings).
+3. Click `AI 작업 감지 연결` (Connect AI job detection). Existing user settings are preserved and privately backed up before observer hooks are added.
+4. Restart the AI apps and terminal sessions, and complete any hook trust review requested by those tools. Already-running sessions can have missing events.
+5. Run a short task and check the job list and `진단` (Diagnostics). A saved connection configuration is not proof that events are arriving.
+6. Choose a delay of **1–120 whole minutes** and `절전` (Sleep) or `정상 종료` (Normal shutdown), then click `설정 저장` (Save settings). The default delay is 10 minutes and the default action is sleep.
+7. Select `실제 전원 제어` (Actual power control) in the execution-mode dropdown and click `모드 전환` (Switch mode). Check the header's applied mode and any blocking reason.
+8. If diagnostics report a permission issue, use `관리자 권한으로 열기` (Open as administrator), shown in actual mode when the app is not elevated.
+9. Check whether another app's always-awake setting prevents the requested transition. Keep this app open or minimized while monitoring jobs.
 
-1. **설치 위치를 먼저 정합니다.** 연결 설정에는 실행 파일 또는 소스의 경로가 들어갑니다.
-2. **관찰 모드로 시작합니다.** 기존 자동 관리를 실행 중이었다면 창을 닫고 모드를 바꿉니다. 동일 데이터 폴더를 사용하는 앱은 중복 실행되지 않습니다.
-3. 상단 **전원 설정**을 펼친 뒤 **도구 연결**을 누릅니다. 두 도구의 기본 사용자 설정에 관측용 hooks를 추가하며 기존 설정은 보존합니다.
-4. **Codex·Claude 앱 및 터미널의 AI 세션을 재시작합니다.** 도구가 요구하는 hook 신뢰 검토를 완료합니다. 연결 전부터 실행 중인 세션은 이벤트가 누락될 수 있습니다.
-5. **짧은 작업을 실행하고 목록과 진단을 확인합니다.** 작업을 시작했을 때 실행 상태가 나타나는지, 완료나 사용자 입력 대기가 올바르게 반영되는지 확인합니다. 계정 또는 CLI 오류가 있으면 먼저 해당 도구에서 해결합니다.
-6. **대기 시간과 완료 후 동작(절전 또는 정상 종료)을 지정하고 설정 저장을 누릅니다.** 최초에는 짧은 시간으로 동작을 확인한 뒤 평소 사용할 값으로 바꿉니다.
-7. **일반 실행으로 전환합니다.** 관찰 모드 창을 닫고 `python app.py` 또는 실행 파일을 인수 없이 실행합니다.
-8. **필요한 전원 권한을 확인합니다.** 진단에서 권한 문제가 보이면 일반 실행 창의 **관리자 권한으로 열기**를 사용합니다. 권한 승인 후 앱이 다시 열립니다.
-9. **기존 상시 절전 방지와 충돌을 확인합니다.** AI 앱 등의 상시 절전 방지가 켜져 있으면 이 앱이 절전을 보류할 수 있습니다. 작업 감지가 확인된 뒤 기존 옵션을 조정하세요.
-10. **평소처럼 AI 도구에서 작업합니다.** 관리 앱은 켜 두거나 작업 표시줄로 최소화합니다. 실제 절전·복귀는 직접 확인할 수 있는 상황에서 먼저 검증하세요.
+`연결 해제` (Disconnect) removes only matching observer hooks for the current launch path and pauses management. Connect does not change AI approval or deployment policies.
 
-연결과 절전 관리가 시작되어도 기존 AI 작업의 승인 정책이나 배포 설정은 바뀌지 않습니다.
+## Observation and actual power control
 
-![전원 설정 패널을 펼친 대시보드](docs/images/settings.png)
+Use **Power settings → Execution mode → select a mode → Switch mode**. Selecting an option alone does not apply it.
 
-## 동작 규칙
-
-| 현재 상황 | 앱 동작 |
+| Mode | Behavior |
 | --- | --- |
-| 처음 실행했고 관측된 작업이 없음 | 작업 대기. 자체 카운트다운을 시작하지 않음 |
-| 실행 중인 작업이 하나 이상 있음 | 시스템 자동 절전 방지 |
-| 모든 작업이 완료·입력 대기이고 상태가 확인됨 | 설정한 시간만큼 대기한 뒤 절전 요청 |
-| 카운트다운 중 새 작업·재개 | 예약 취소 및 작업 보호 |
-| 카운트다운 중 사용자 입력 | 대기 시간 초기화 |
-| 완료 증거가 부족함 | 확인 필요 표시 및 복구 유예 |
-| 외부 절전 방지·권한 오류 | 절전 보류 및 주기적 재확인 |
-| 일시 중지·앱 종료 | 이 앱 소유의 절전 방지 해제 |
-| 절전에서 복귀 | 기존 만료 카운트다운을 그대로 실행하지 않고 다시 계산 |
+| `관찰 모드` — Observation | Displays jobs and simulated timing; no physical power requests |
+| `실제 전원 제어` — Actual power control | Prevents automatic sleep while observed jobs run; requests the configured transition once its conditions are satisfied |
 
-**완료는 작업 이벤트의 종료를 뜻합니다.** 코드 품질, 테스트 성공, 프로젝트 목표 달성 여부를 판정하지 않습니다. 실패·취소도 작업 실행이 끝났다는 증거가 충분한 경우 완료 상태로 정리될 수 있습니다.
+Switching to actual control rechecks activity and starts a fresh full delay. It never immediately sleeps or shuts down just because an observation-mode timer expired. Returning to observation releases this app's physical sleep-prevention request. Failed mode changes report the error rather than claiming success. Pause and unknown-state blockers remain in effect after switching.
 
-권한 요청 이벤트가 발생했다고 무조건 입력 대기로 처리하지는 않습니다. 자동 승인될 요청과 사람이 응답해야 하는 대기를 구분할 증거가 부족하면 확인 필요로 취급합니다.
+**Mode changes apply only to the current run.** On the next launch, command-line options determine the mode. A shortcut containing `--dry-run` starts in observation mode again. The settings panel explains the next start mode for the same launch options. Saved delay, completion action, pause state and text size persist independently.
 
-## 데이터와 설정
+## Sleep and shutdown rules
 
-| 항목 | 위치 또는 내용 |
+| Situation | Sleep selected | Normal shutdown selected |
+| --- | --- | --- |
+| No jobs have been observed yet | Wait; no countdown | Wait; no countdown |
+| At least one main/child/background job is running | Prevent automatic sleep; cancel countdown | Same |
+| Jobs await human input/approval; none are running | Eligible for sleep after the delay | Do not schedule shutdown; allow existing Windows sleep policy |
+| All observed work has finished | Request sleep after the delay | Request normal shutdown after the delay |
+| New activity or mouse/keyboard input during countdown | Cancel/reset the countdown | Same |
+| Job state is unknown | Hold transition; temporary recovery protection | Do not request shutdown |
+| Pause or close this app | Release this app's prevention request | Same |
+
+![Simulated sleep countdown](docs/images/countdown.png)
+
+![Paused monitoring](docs/images/paused.png)
+
+If uncertainty persists with no other running work, recovery protection lasts **30 minutes by default**. After that, this app releases its prevention request without requesting sleep or shutdown, leaving Windows policy in control. Continued job protection is not guaranteed in that state. Unknown state is never silently converted to completed.
+
+![Unknown state requiring attention](docs/images/unknown.png)
+
+Other applications' power requests and permission/query failures can block a transition. Sleep retries are approximately 30 seconds apart; inspect Diagnostics. Display blanking is allowed; the app does not keep the monitor lit.
+
+### Normal shutdown is a request, not forced termination
+
+![Simulated normal-shutdown countdown](docs/images/shutdown.png)
+
+Shutdown uses Windows `ExitWindowsEx(EWX_POWEROFF)` without `EWX_FORCE` or `EWX_FORCEIFHUNG`. It does not kill processes or automatically save every application's documents. Applications can require user action or block shutdown.
+
+The app rechecks jobs, user input and other power requests immediately before transition. Before requesting shutdown, it persists a paused state to avoid repeated shutdown attempts after cancellation or restart. After investigating a failure or cancelled shutdown, resume management manually. “Shutdown requested” means Windows accepted the request, not that the PC has been confirmed powered off.
+
+## Local data and privacy
+
+| Item | Location or policy |
 | --- | --- |
-| 로컬 데이터 | `%LOCALAPPDATA%\AIJobSleepManager\events.sqlite3` |
-| 저장하는 정보 | 도구, 세션·턴·하위 작업 식별자, 상태 이벤트, 시각, 관리 설정, 프로젝트 폴더명, 사용자가 붙인 작업 이름 |
-| 저장하지 않는 정보 | 프롬프트 본문, 소스코드 본문, AI 응답 본문, 키보드 입력 내용 |
-| Claude 연결 설정 | `%USERPROFILE%\.claude\settings.json` |
-| Codex 연결 설정 | `%USERPROFILE%\.codex\hooks.json` |
-| 설정 백업 | 각 설정 파일 옆에 고유 이름으로 생성, 개인 사용자 권한 적용 |
+| App data | `%LOCALAPPDATA%\AIJobSleepManager\events.sqlite3` |
+| Persisted | Provider/session/turn/child IDs, status events, timestamps, settings, text size, project folder names and custom job names |
+| Not copied to the app database | Prompt bodies, source-code bodies, AI response bodies or typed keyboard content |
+| Claude hook configuration | `%USERPROFILE%\.claude\settings.json` |
+| Codex hook configuration | `%USERPROFILE%\.codex\hooks.json` |
+| Configuration backups | Unique files beside the original configuration, restricted to the user |
 
-Codex 로컬 세션 기록에서 상태·작업 계획·최신 사용자 지시·공개 진행 설명·도구 요청/응답 식별 정보를 읽고, 로컬 색인/DB에서 제목·프로젝트·부모 관계를 읽습니다. 지시와 공개 설명은 각각 최대 500자로 축약하여 메모리에만 표시하며 앱 DB·진단에 복사하거나 외부 서버로 전송하지 않습니다. 소스코드, 명령/도구 출력 원문, 내부 추론은 활동 정보로 보관하지 않습니다. 데이터는 서버 없이 로컬 SQLite에 저장합니다. 앱이 추가하는 hooks는 AI 출력에 지시를 삽입하지 않습니다.
+Public instructions and responses are shortened to 500 characters each and held only in memory for display. They are not included in diagnostics or transmitted to an external server. Private thinking and raw tool inputs/outputs are not retained as activity details. The original AI tools manage their own transcript storage. Hook handlers do not inject messages or decisions into AI output.
 
-자동 연결은 기본 사용자 경로를 대상으로 합니다. `CODEX_HOME` 또는 `CLAUDE_CONFIG_DIR`가 설정되어 있으면 UI가 자동 연결을 중단합니다. 사용자 지정 경로의 수동 연결 절차는 아직 제공하지 않습니다.
+Codex display metadata also uses local titles/project/parent information and explicit plans. Missing latest Codex instructions can be recovered from up to 32 MiB of recent log data only when a current-turn boundary is proven. Display data never substitutes for lifecycle evidence.
 
-### 이동·연결 해제·삭제
+Codex lifecycle recovery is separate: after a large log gap, the observer scans up to 32 MiB for explicit turn start/end and matched input-wait events. This prevents a missed start from leaving an active job at **Needs verification**. Missing, malformed or inconsistent evidence remains unknown; assistant text and recent file activity are not proof of execution or completion.
 
-1. 현재 위치에서 앱의 **연결 해제**를 누릅니다.
-2. AI 앱과 세션을 재시작합니다.
-3. 관리 앱을 닫습니다.
-4. 프로그램을 옮긴 경우 새 위치에서 **도구 연결**을 다시 수행합니다.
+Automatic connection targets default user paths. If `CODEX_HOME` or `CLAUDE_CONFIG_DIR` is set, the Connect UI stops rather than changing a guessed location; manual custom-path setup is not yet documented. Display readers can use these configured roots, but this does not install hooks there.
 
-폴더형 실행 파일은 `AIJobSleepManager.exe`, `AIJobSleepHook.exe`, `_internal`을 포함한 **폴더 전체**를 옮겨야 합니다. 앱이 생성한 로컬 데이터와 설정 백업은 프로그램 폴더를 삭제해도 남습니다. 필요 없을 때 별도로 정리하세요. 원래 AI 설정 파일 전체를 삭제할 필요는 없습니다.
+Before moving the app: disconnect at the old location, restart AI sessions, close the manager, then reconnect from the new location. Move the **entire** executable folder, including both EXEs and `_internal`. Deleting the program folder does not remove local data or configuration backups. Do not delete entire AI configuration files just to uninstall the observer.
 
-## 문제 해결
+## Troubleshooting
 
-| 증상 | 확인할 내용 |
+| Symptom | What to check |
 | --- | --- |
-| 제목 대신 “Codex 작업” 또는 “Claude Code 작업”으로 표시됨 | 자동 제목 정보가 없는 세션입니다. 프로젝트와 상세 ID를 확인한 뒤 이름 지정을 사용할 수 있습니다. |
-| 작업이 목록에 나타나지 않음 | 도구 연결 후 AI 앱·세션을 다시 시작했는지, hook 신뢰 검토를 했는지, 기본 설정 경로를 사용하는지 확인 |
-| 앱을 켜도 절전 방지가 되지 않음 | 관찰 모드인지, 일시 중지 상태인지, 실제 작업 이벤트가 들어오는지 확인 |
-| AI 앱이 열려 있는데 작업 대기 또는 확인 필요로 표시됨 | 열린 앱과 실행 중인 작업은 다름. 진단의 최근 이벤트와 연결 상태 확인 |
-| 작업이 끝났는데 확인 필요가 남음 | 종료 증거, 하위 작업 상태, 도구 버전 또는 연결 문제 확인. 불명 상태를 강제로 완료로 간주하지 않음 |
-| 카운트다운이 계속 처음으로 돌아감 | 새 작업 또는 마우스·키보드 입력이 들어오는지 확인 |
-| 절전을 보류했다고 표시됨 | 진단의 `last_error`, 관리자 여부, 다른 앱의 전원 요청 확인 |
-| 관리자 권한 버튼이 보이지 않음 | 관찰 모드이거나 이미 관리자 권한으로 실행 중이면 표시되지 않음 |
-| 다시 실행했는데 자동 관리가 멈춰 있음 | 이전에 일시 중지한 설정이 저장됨. 자동 관리 재개 선택 |
-| 이미 실행 중이라는 메시지 | 작업 표시줄의 기존 창을 확인. 모드를 바꾸려면 기존 창을 닫고 재실행 |
-| 프로그램을 옮긴 뒤 감지가 안 됨 | 기존 실행 경로의 hooks가 남아 있을 수 있음. 이동 전 연결 해제, 이동 후 다시 연결 필요 |
+| Claude job is visible but its content is missing | A matching local transcript and recent user-message boundary are needed. Check `claude_display_status` in Diagnostics. Child-agent details and remote transcripts are not supported. |
+| No job appears | Connect, restart AI sessions, complete hook trust review and check new events in Diagnostics. A transcript alone does not register a running Claude job. |
+| Generic job title | Use project name/session ID to identify it and assign a custom name. Claude automatic titles are unavailable. |
+| Settings saved but no shutdown | Check observation mode, paused management, unknown jobs, input/approval waits and external power requests. Saving does not enable actual control. |
+| `unobserved` appears as a job | Update to the current build. `unobserved` was a placeholder created from an open AI process, not a real session. Open apps no longer create job rows; use **Connect AI job detection** and start a new AI session if work is not detected. |
+| Countdown keeps resetting | New work or user input resets the full delay. |
+| Administrator button missing | It is hidden in observation mode or when already elevated. |
+| Management paused after restart | Pause state persists, including after a shutdown request. Resume when ready. |
+| Already-running message | Use the existing window; change its mode in Power settings. |
+| Detection stopped after moving the app | Remove the old path's hooks and reconnect at the new path. |
 
-PowerShell에서 읽기 전용 진단을 실행할 수 있습니다.
+Read-only diagnostics:
 
 ```powershell
 python app.py --diagnose
-```
-
-Windows의 절전 지원 방식과 현재 전원 요청은 다음 명령으로 확인합니다. 전원 요청 조회는 관리자 PowerShell이 필요할 수 있습니다.
-
-```powershell
 powercfg /a
 powercfg /requests
 ```
 
-관측만 하는 CLI 실행 예시입니다. 최대 60초까지 실행되며 `--dry-run`을 함께 사용해야 전원 요청이 발생하지 않습니다.
+Power-request inspection may require administrator permissions. A bounded CLI observation run (maximum 60 seconds):
 
 ```powershell
 python app.py --dry-run --observe-seconds 10
 ```
 
-## 개발 및 실행 파일 빌드
+## Development and packaging
 
-### 자동 테스트
-
-프로젝트 루트에서 실행합니다. 테스트는 실제 PC 절전·종료를 수행하지 않습니다.
+Tests use substitute power boundaries and do not put the PC to sleep or shut it down:
 
 ```powershell
 python -m unittest discover -s tests -v
 python -m compileall -q app.py sleep_manager scripts
 ```
 
-상태 정책, 중복·역순 이벤트, 하위 작업, 타이머, SQLite, hooks 설정 보존 및 전원 제어 경계 등을 확인합니다. 별도 린터나 정적 타입 검사 설정은 현재 없습니다.
+There is currently no separate linter or static type-check configuration.
 
-### Windows 실행 파일 만들기
+Build on Windows:
 
 ```powershell
 .\build.ps1
 ```
 
-스크립트는 프로젝트의 `.build-env`에 빌드 환경을 만들고 `requirements-build.txt`의 **PyInstaller 6.22.3**을 설치한 뒤 패키징합니다. 빌드 의존성 다운로드에는 네트워크가 필요합니다.
-
-결과:
+This creates `.build-env`, installs the pinned **PyInstaller 6.22.3** build dependency, and packages the app. Dependency downloads require network access.
 
 ```text
 dist/AIJobSleepManager/
-├── AIJobSleepManager.exe   # GUI 앱
-├── AIJobSleepHook.exe      # AI hooks의 stdin을 읽는 보조 프로그램
-└── _internal/             # Python과 GUI 런타임 등
+├── AIJobSleepManager.exe
+├── AIJobSleepHook.exe
+└── _internal/
 ```
 
-빌드된 앱은 Python을 별도로 설치하지 않고 실행할 수 있습니다. 실행 파일은 코드 서명되어 있지 않으며, 현재 자동 업데이트·설치 프로그램은 없습니다.
+The resulting folder runs without a separate Python installation. It is unsigned and must be kept together.
 
 ```powershell
 .\dist\AIJobSleepManager\AIJobSleepManager.exe --dry-run
 ```
 
-### 문서 스크린샷 다시 촬영
-
-Windows의 보이는 데스크톱에서 다음을 실행합니다. Pillow는 촬영 도구에만 필요합니다.
+To regenerate the eight demonstration screenshots on a visible Windows desktop (Pillow is needed only for capture):
 
 ```powershell
 python -m venv .docs-env
@@ -348,60 +255,47 @@ python -m venv .docs-env
 .\.docs-env\Scripts\python.exe scripts\capture_screenshots.py
 ```
 
-실제 UI와 상태 엔진에 예시 이벤트를 전달해 `docs/images/`의 일곱 화면을 촬영합니다. 임시 데이터 폴더와 대체 전원·로그 입력을 사용하므로 사용자 AI 설정, 실제 작업 기록, 전원 상태를 변경하지 않습니다. 창이 잠시 앞으로 나타납니다.
+Capture uses temporary data and substitute power inputs; windows briefly come to the foreground. It does not alter AI settings or perform power transitions.
 
-## 검증 현황과 알려진 한계
-
-검증 기준일: **2026-09-14**. 아래 표는 자동 테스트와 실제 환경 확인 결과를 구분한 기록입니다.
-
-| 검증 항목 | 결과 |
-| --- | --- |
-| 자동 테스트 | 149개 통과 |
-| 소스 구문 컴파일 | 통과 |
-| PyInstaller 폴더형 빌드 | 통과 |
-| 패키징된 GUI 시작·종료 | 관찰 모드 확인 |
-| 패키징된 Hook의 stdin 수신·무출력·본문 제거 | 확인 |
-| Windows 보호 요청 생성·설정·해제·닫기 | 실제 API 확인. 절전 호출 제외 |
-| Codex 데스크톱 실행 상태 | 실제 로컬 기록 관측 |
-| Codex CLI 0.139.0 | 생애주기 관측. 설정 모델이 최신 CLI를 요구해 정상 작업 검증 미완료 |
-| Claude Code 2.1.259 | 시작·실패·종료 hooks 수신. 크레딧 부족으로 정상 작업 검증 미완료 |
-| 네 환경의 정상 완료·입력 대기·재개 전체 흐름 | 미완료 |
-| 읽기 쉬운 작업 목록·필터·이름 저장·계획 상세 | 실제 Tk UI 및 자동 회귀 테스트 확인 |
-| 정상 종료 조건·일회 요청·강제 플래그 금지·권한 복원 | 자동 테스트 통과, OS 호출은 대체 경계 사용 |
-| 실제 PC 절전·복귀·정상 종료 / 야간 3회 운영 | 미실시 |
-
-알려진 한계:
-
-- Codex 로컬 로그는 비공식이며 버전에 따라 형식이 바뀔 수 있습니다. Stop hook만으로 완료를 확정하지 않습니다.
-- Claude의 Stop은 다른 hook이 작업을 재진행시키기 전의 후보 신호일 수 있습니다. 모든 후속 실행의 최종 상태를 관측하는 것은 아닙니다.
-- 장시간 백그라운드 명령, 영구 실행 서버, 누락된 하위 작업과 모든 세션의 완전한 발견은 검증되지 않았습니다.
-- 프로세스 이름은 보조 확인에만 사용합니다. 모든 작업을 찾았다는 증거가 아닙니다.
-- 절전 직전 다시 확인하더라도 이벤트 수신과 Windows 전환을 완전히 동시에 처리할 수는 없습니다.
-- 수동 절전, 노트북 덮개 닫기, 배터리 부족, Modern Standby의 배터리 전원 등은 별도 OS 정책·제약을 따릅니다.
-- 영상 재생·다운로드처럼 키보드 입력 없이 PC를 사용하는 모든 상황을 별도로 감지하지 않습니다. 다른 앱의 전원 요청 확인에 의존합니다.
-- 앱을 닫거나 관리를 중지해도 다른 프로그램이 보유한 절전 방지 요청은 해제하지 않습니다.
-
-## 프로젝트 구조
+### Source layout
 
 ```text
-app.py                       # GUI·hook·진단·관찰 진입점
+app.py                       # GUI, hook, diagnostics and observation entry point
 sleep_manager/
-  engine.py                  # 상태 집계와 타이머 정책
-  controller.py              # 이벤트 수신과 절전 직전 재확인
-  integrations.py            # hooks 정규화 및 연결 설정
-  codex_logs.py              # Codex 로컬 생애주기 관측
-  storage.py                 # 로컬 SQLite 이벤트와 설정
-  power.py                   # Windows 전원·입력 API
-  activity_view.py           # 메모리에서 최신 지시·공개 설명·도구 활동 추적
-  job_view.py                # 표시용 제목·프로젝트 조회와 계획·남은 작업 표현
-  ui.py                      # Tkinter UI
+  engine.py                  # Job state and timing policy
+  controller.py              # Event ingestion and pre-transition checks
+  integrations.py            # Hook normalization and installation
+  codex_logs.py              # Codex lifecycle observation
+  claude_details.py          # Display-only Claude transcript reader
+  request_history.py         # Bounded latest Codex instruction recovery
+  activity_view.py            # Ephemeral public activity
+  job_view.py                # Titles, groups and display rows
+  storage.py                 # Local metadata/settings database
+  power.py                   # Windows power and input boundaries
+  ui.py                      # Tkinter interface
 scripts/capture_screenshots.py
-  # 예시 데이터로 실제 UI 촬영
-tests/                       # 자동 테스트
-docs/images/                 # README 화면
-build.ps1                    # Windows 패키징
-AIJobSleepManager.spec       # PyInstaller 구성
-launch.cmd                   # 실행 도우미
+tests/
+docs/images/
+README.md / README.ko.md / README.ja.md
+build.ps1 / AIJobSleepManager.spec / launch.cmd
 ```
 
-구조는 `AI 이벤트 → 로컬 큐·로그 관측 → 상태 엔진 → Windows 전원 제어`로 나뉩니다. UI는 상태를 보여 주며 정책은 별도 엔진에서 처리합니다.
+## Verification and limitations
+
+As of **2026-09-21**:
+
+| Check | Result |
+| --- | --- |
+| Automated tests | 195 pass, including 10 Claude display regressions |
+| Claude local content extraction | Instructions and public responses extracted from 5 locally matched sessions; separate from lifecycle verification |
+| Source compilation, packaging and GUI smoke test | Verified in observation mode |
+| Windows prevention request create/set/clear/close | Previously verified with real APIs; sleep call excluded |
+| Packaged hook stdin handling and body removal | Previously verified |
+| Codex desktop running-state observation | Verified from local records |
+| Codex CLI 0.139.0 / Claude Code 2.1.259 historical checks | Lifecycle reception observed; normal-work validation was limited by model/version or account-credit issues |
+| All four environments: finish, wait, resume | Incomplete |
+| Actual PC sleep/resume/shutdown and three unattended nights | Not tested |
+
+Log formats are version-dependent. Claude Stop is a completion candidate before other hooks can continue work; it is not proof that every background activity is finished. Not all long-running servers, child jobs or sessions are guaranteed to be discoverable. Display readers cannot fill those lifecycle gaps.
+
+Manual sleep, closing a laptop lid, low battery and Modern Standby have separate OS policies. Passive use such as video playback or downloads is not fully detected; other power requests are used as a safeguard. Event arrival and Windows transition cannot be perfectly atomic. Pausing or closing this app does not release requests owned by other applications.

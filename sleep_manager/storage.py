@@ -21,6 +21,7 @@ class Store:
             db.execute('CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT UNIQUE NOT NULL, received REAL NOT NULL, payload TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS job_labels (provider TEXT NOT NULL, session_id TEXT NOT NULL, label TEXT NOT NULL, PRIMARY KEY(provider,session_id))')
             db.execute('CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK(id=1), payload TEXT NOT NULL)')
+            db.execute('CREATE TABLE IF NOT EXISTS ui_preferences (id INTEGER PRIMARY KEY CHECK(id=1), font_size INTEGER NOT NULL)')
 
     def connect(self):
         db=sqlite3.connect(self.path,timeout=5)
@@ -59,6 +60,16 @@ class Store:
     def save_settings(self, settings):
         with self.connect() as db:
             db.execute('INSERT OR REPLACE INTO settings(id,payload) VALUES (1,?)',(json.dumps(settings,allow_nan=False),))
+
+    def text_size(self):
+        with self.connect() as db:
+            row=db.execute('SELECT font_size FROM ui_preferences WHERE id=1').fetchone()
+            return row[0] if row and row[0] in (12,14,16) else 12
+
+    def set_text_size(self,size):
+        if size not in (12,14,16): raise ValueError('Unsupported text size')
+        with self.connect() as db:
+            db.execute('INSERT OR REPLACE INTO ui_preferences(id,font_size) VALUES (1,?)',(size,))
 
     def labels(self):
         with self.connect() as db:

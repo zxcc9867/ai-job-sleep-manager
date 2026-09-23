@@ -54,6 +54,24 @@ class ControllerTests(unittest.TestCase):
             self.assertIn('claude:new',c.engine.jobs)
             self.assertEqual(p.requests,0)
             self.assertTrue(p.required)
+    def test_open_claude_process_does_not_create_a_fake_job(self):
+        with tempfile.TemporaryDirectory() as d:
+            store=Store(Path(d));store.append({'provider':'claude','session_id':'finished','kind':'complete','metadata_complete':True})
+            c=Controller(store,Power(),Reader(),clock=lambda:0)
+            c.set_presence({'claude.exe'})
+            self.assertNotIn('claude:unobserved',c.engine.jobs)
+            self.assertEqual(c.tick().mode,'idle')
+            c.close()
+
+    def test_no_observed_work_stays_idle_with_open_ai_processes(self):
+        with tempfile.TemporaryDirectory() as d:
+            c=Controller(Store(Path(d)),Power(),Reader(),clock=lambda:0)
+            c.set_presence({'claude.exe','codex.exe'})
+            self.assertEqual(c.engine.jobs,{})
+            self.assertFalse(c.engine.seen_work)
+            self.assertEqual(c.tick().mode,'idle')
+            c.close()
+
     def test_uncertain_session_end_does_not_arm_timer(self):
         with tempfile.TemporaryDirectory() as d:
             store=Store(Path(d)); c=Controller(store,Power(),Reader(),clock=lambda:0)

@@ -11,6 +11,8 @@ class Controller:
         settings=store.settings()
         self.engine=Engine(delay=settings.get('delay',600),enabled=settings.get('enabled',True),
                            recovery=settings.get('recovery',1800),action=settings.get('action','sleep'))
+        self.started_at=time.time()
+        self.observed_now={}
         self.seq=0
         self.generation=0
         self.error=''
@@ -21,17 +23,21 @@ class Controller:
         self.status=None
         self.recent_events=[]
         self.live_providers=set()
+        self.claude_request_starts={}
         for seq,event in store.recent():
             try:
                 self.engine.ingest(event,clock())
             except (ValueError,TypeError):
                 continue
             self.seq=seq
+            if event.get('provider')=='claude' and event.get('kind')=='start':
+                self.claude_request_starts[event['session_id']]=event.get('timestamp',0)
         self.engine.jobs={k:j for k,j in self.engine.jobs.items() if j.active or j.state in ('unknown','waiting')}
         for job in self.engine.jobs.values():
             job.state='unknown'; job.unknown_since=clock()
             job.unknown_children.update({child:clock() for child in job.children})
             job.children.clear(); job.background=False
+        self.restored_jobs=set(self.engine.jobs)
         self.engine.seen_work=bool(self.engine.jobs)
         self.engine.baseline=None
 
@@ -40,7 +46,19 @@ class Controller:
         event=dict(event)
         if event.get('metadata_complete') is False and event.get('kind') in ('session_end','cancelled','failed'):
             event['kind']='unknown'
+        previous=self.engine.jobs.get(event.get('provider','')+':'+event.get('session_id',''))
+        previous_stamp=max([previous.last_timestamp,*previous.child_timestamps.values()]) if previous else 0
         self.engine.ingest(event,self.clock())
+        stamp=event.get('timestamp',0)
+        if isinstance(stamp,(int,float)) and self.started_at<=stamp<=time.time()+5 and stamp>=previous_stamp:
+            key=event['provider']+':'+event['session_id']
+            job=self.engine.jobs[key]
+            turn=event.get('turn_id','')
+            if not turn or not job.turn_id or turn==job.turn_id:
+                self.observed_now[key]=(stamp,event.get('source','새 상태 이벤트'))
+        if event.get('provider')=='claude' and event.get('kind')=='start':
+            sid=event['session_id']
+            self.claude_request_starts[sid]=max(self.claude_request_starts.get(sid,0),event.get('timestamp',0))
         if event.get('source') == 'codex-local-log' and event.get('kind') in ('complete','cancelled'):
             for parent in list(self.engine.jobs.values()):
                 child=event['session_id']
@@ -51,6 +69,20 @@ class Controller:
             self.live_providers.add(event['provider'])
         self.recent_events.append((time.strftime('%H:%M:%S'),event.get('provider'),event.get('kind')))
         self.recent_events=self.recent_events[-8:]
+
+    def job_observation(self,job,connections):
+        key=job.provider+':'+job.session_id
+        event=self.observed_now.get(key)
+        connected=connections.get(job.session_id) if job.provider=='claude' else None
+        historical=key in self.restored_jobs and job.state=='unknown' and not job.active and not event and not connected
+        if connected:connection='현재 세션 연결 확인 · '+connected+' (실행·완료 판단과 별도)'
+        elif event:
+            connection='이번 실행에서 이벤트 확인 · '+time.strftime('%m/%d %H:%M:%S',time.localtime(event[0]))
+        elif key in self.restored_jobs:connection='이전 실행에서 복원 · 현재 세션 연결 미확인'
+        else:connection='현재 연결을 확정할 새 이벤트가 필요합니다.'
+        stamp=max([job.last_timestamp,*job.child_timestamps.values()])
+        last=time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(stamp)) if stamp else '시각 미제공'
+        return dict(historical=historical,connection=connection,last_event=last)
 
     def drain(self):
         # Drain committed hooks first, then authoritative final Codex lifecycle evidence.
@@ -76,14 +108,10 @@ class Controller:
         # Per-file unknown events isolate reader faults from healthy providers.
 
     def set_presence(self,names):
-        # Unobserved open providers are not equivalent to idle.
+        # A tool process can remain open after its last job. It is not a job ID.
         for provider,images in [('codex',{'codex.exe'}),('claude',{'claude.exe'})]:
-            key=provider+':unobserved'
+            self.engine.jobs.pop(provider+':unobserved',None)
             present=bool(images & names)
-            if present and provider not in self.live_providers and not any(j.provider==provider and j.state!='idle' for j in self.engine.jobs.values()):
-                self.engine.ingest(dict(provider=provider,session_id='unobserved',kind='unknown'),self.clock())
-            elif provider in self.live_providers or not present:
-                self.engine.jobs.pop(key,None)
             if not present:
                 for job in self.engine.jobs.values():
                     if job.provider==provider and job.active:
@@ -92,6 +120,9 @@ class Controller:
                         job.children.clear(); job.background=False
                         if job.unknown_since is None:
                             job.unknown_since=self.clock()
+        if not self.engine.jobs and not self.live_providers:
+            self.engine.seen_work=False
+            self.engine.baseline=None
 
     def tick(self):
         now=self.clock()
@@ -187,6 +218,43 @@ class Controller:
                 pass
             self.status=Decision('fault',required,running=state.running,waiting=state.waiting,unknown=state.unknown)
             return self.status
+
+    def set_execution_mode(self,dry_run):
+        if not isinstance(dry_run,bool): raise ValueError('Mode must be a boolean')
+        if dry_run==self.power.dry_run: return
+        if dry_run:
+            # Returning to observation must not depend on a healthy reader.
+            self.power.set_dry_run(True)
+            idle=0
+        else:
+            self.drain()
+            self.set_presence(self.power.process_names())
+            idle=self.power.input_idle_seconds()
+        now=self.clock()
+        self.engine.on_resume(now)
+        state=self.engine.tick(now,idle)
+        self.power.set_required(state.required)
+        if not dry_run: self.power.set_dry_run(False)
+        self.generation+=1
+        self.last_tick=now
+        self.fault_since=None
+        self.retry_at=0
+        self.error=''
+        self.shutdown_notice=''
+        self.status=state
+        # No suspend/shutdown call here; the normal loop observes a fresh full delay.
+
+    def set_power_settings(self,seconds,action):
+        # Validate both fields and commit once before changing the live policy.
+        checked=Engine(delay=seconds,action=action)
+        self.store.save_settings(dict(delay=checked.delay,action=checked.action,
+            enabled=self.engine.enabled,recovery=self.engine.recovery))
+        now=self.clock()
+        self.engine.set_delay(checked.delay,now)
+        self.engine.set_action(checked.action,now)
+        self.fault_since=None
+        self.error=''
+        self.shutdown_notice=''
 
     def set_action(self,action):
         self.engine.set_action(action,self.clock())

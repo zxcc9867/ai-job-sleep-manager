@@ -9,6 +9,7 @@ import sys
 import ctypes
 from ctypes import wintypes
 import tempfile
+import json
 import time
 from datetime import datetime, timezone
 
@@ -17,6 +18,7 @@ from PIL import ImageGrab
 from sleep_manager.controller import Controller
 from sleep_manager.storage import Store
 from sleep_manager.ui import Window
+from sleep_manager.claude_details import ClaudeDetails
 
 
 class PreviewPower:
@@ -83,9 +85,23 @@ def capture(scenario, output):
         args = SimpleNamespace(smoke_ui=False, screenshot=None, data_dir=Path(folder))
         window = Window(controller, args, [sys.executable, 'app.py'])
         window.catalog=PreviewCatalog()
+        transcript=Path(folder)/'projects'/'demo'/'demo-claude-tests.jsonl'
+        transcript.parent.mkdir(parents=True)
+        stamp=datetime.now(timezone.utc).isoformat()
+        messages=[dict(type='user',sessionId='demo-claude-tests',timestamp=stamp,message=dict(role='user',content='API 오류 처리를 수정하고 회귀 테스트를 추가해줘')),
+            dict(type='assistant',sessionId='demo-claude-tests',timestamp=stamp,message=dict(role='assistant',content=[dict(type='text',text='오류 응답 처리를 수정했습니다. 지금은 잘못된 입력과 인증 만료 상황의 회귀 테스트를 실행하고 있습니다.'),dict(type='tool_use',id='demo-call',name='Bash')]))]
+        transcript.write_text(''.join(json.dumps(m,ensure_ascii=False)+'\n' for m in messages),encoding='utf-8')
+        window.claude_details=ClaudeDetails(Path(folder)/'projects')
         window.root.geometry('+30+20')
         if scenario=='shutdown': window.show_complete.set(True)
-        if scenario=='settings': window.toggle_settings()
+        if scenario in ('settings','large_text','settings_unsaved'): window.toggle_settings()
+        if scenario in ('settings','settings_unsaved'):
+            window.minutes.set('5');window.action.set('정상 종료')
+            window.apply_delay()
+            if scenario=='settings_unsaved': window.minutes.set('7')
+        if scenario=='large_text':
+            window.text_size.set('아주 크게'); window.apply_text_size()
+            window.root.geometry('1000x900+30+20')
         window.root.lift()
         window.root.attributes('-topmost', True)
         if scenario=='activity': window.root.geometry(f'1080x{min(740,window.root.winfo_screenheight()-80)}+30+20')
@@ -96,8 +112,14 @@ def capture(scenario, output):
                 window.table.selection_set('codex:demo-codex-refactoring')
                 window.show_job_details()
             window.root.update()
+            if scenario=='claude':
+                window.table.selection_set('claude:demo-claude-tests')
+                window.show_job_details();window.root.update()
+                assert 'API 오류 처리를 수정' in window.details.get('1.0','end')
             if scenario=='activity':
-                window.page_canvas.yview_moveto(0)
+                shell=window.root.nametowidget(window.page_canvas.itemcget(window.page_window,'window'))
+                position=window.detail_panel.winfo_rooty()-shell.winfo_rooty()-16
+                window.page_canvas.yview_moveto(max(0,position)/max(1,shell.winfo_height()))
                 window.root.update()
             if scenario in ('running','activity','settings'):
                 assert window.table.selection()==('codex:demo-codex-refactoring',)
@@ -120,5 +142,5 @@ def capture(scenario, output):
 if __name__ == '__main__':
     destination = Path(__file__).resolve().parents[1] / 'docs' / 'images'
     destination.mkdir(parents=True, exist_ok=True)
-    for scenario in ('running', 'countdown', 'paused', 'unknown', 'shutdown', 'activity', 'settings'):
+    for scenario in ('running', 'countdown', 'paused', 'unknown', 'shutdown', 'activity', 'settings', 'claude'):
         capture(scenario, destination / (scenario + '.png'))

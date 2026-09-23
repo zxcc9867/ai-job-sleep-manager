@@ -11,6 +11,7 @@ from .request_history import recover_request
 UUID=re.compile(r'([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})',re.I)
 TERMINAL={'complete','failed','cancelled'}
 MAX_READ=4*1024*1024
+MAX_RECOVERY=32*1024*1024
 
 def parse_record(record, session):
     payload=record.get('payload',{})
@@ -31,6 +32,62 @@ def parse_record(record, session):
     except (AttributeError,ValueError):
         timestamp=0
     return dict(provider='codex',session_id=session,kind=kind,turn_id=payload.get('turn_id',''),task_id='',timestamp=timestamp,metadata_complete=True,source='codex-local-log')
+
+def recover_lifecycle(path,end,session):
+    """Recover explicit lifecycle evidence, independently of display text.
+
+    Stop at the nearest start/terminal boundary, validate newer turn contexts,
+    then replay only input-wait calls and their matching results. Malformed or
+    out-of-budget history remains unknown. No message body is evidence.
+    """
+    cursor=end;floor=max(0,end-MAX_RECOVERY);carry=b'';later=[];context=''
+    try:
+        with path.open('rb') as stream:
+            while cursor>floor:
+                begin=max(floor,cursor-1024*1024)
+                stream.seek(begin);data=stream.read(cursor-begin)+carry;cursor=begin
+                lines=data.split(b'\n');carry=lines.pop(0)
+                if cursor==0:lines.insert(0,carry);carry=b''
+                for raw in reversed(lines):
+                    if not raw:continue
+                    record=json.loads(raw)
+                    if not isinstance(record,dict):return None
+                    payload=record.get('payload',{})
+                    if not isinstance(payload,dict):continue
+                    tag=record.get('type');kind=payload.get('type')
+                    if tag=='turn_context':
+                        turn=payload.get('turn_id','')
+                        if not isinstance(turn,str) or not turn:return None
+                        if context and context!=turn:return None
+                        context=turn
+                    if tag=='event_msg' and kind in ('task_started','task_complete','turn_aborted'):
+                        boundary=parse_record(record,session);turn=payload.get('turn_id','')
+                        if not isinstance(turn,str) or not turn or len(turn)>256 or (context and context!=turn):return None
+                        if not boundary or not boundary['timestamp']:return None
+                        if boundary['kind'] in TERMINAL:
+                            # A later input call/result after a terminal is ambiguous.
+                            if later:return None
+                            return dict(events=[boundary],turn=turn,pending={})
+                        pending={};events=[boundary]
+                        for item in reversed(later):
+                            data=item['payload'];call=data.get('call_id')
+                            if not isinstance(call,str) or not call:return None
+                            if data['type']=='function_call':
+                                pending[(session,call)]=turn
+                                event=parse_record(item,session)
+                                event['turn_id']=turn;events.append(event)
+                            elif (session,call) in pending:
+                                pending.pop((session,call))
+                                try:stamp=datetime.fromisoformat(item['timestamp'].replace('Z','+00:00')).timestamp()
+                                except (ValueError,AttributeError,KeyError):return None
+                                events.append(dict(provider='codex',session_id=session,kind='waiting' if pending else 'running',turn_id=turn,timestamp=stamp,metadata_complete=True,source='codex-local-log'))
+                        return dict(events=events,turn=turn,pending=pending)
+                    if tag=='response_item' and (kind=='function_call_output' or (kind=='function_call' and payload.get('name') in ('request_user_input','functions.request_user_input'))):
+                        later.append(dict(type=tag,timestamp=record.get('timestamp'),payload={k:payload.get(k) for k in ('type','name','call_id')}))
+                if len(carry)>MAX_RECOVERY:return None
+    except (OSError,ValueError,TypeError,RecursionError):pass
+    return None
+
 
 class CodexLogs:
     def __init__(self, root):
@@ -107,8 +164,9 @@ class CodexLogs:
                             # Display failures must never consume or suppress lifecycle events.
                             self.clear_details(session)
                         event=parse_record(record,session)
-                        if event and event['kind']=='start':
-                            state['turn']=event.get('turn_id','')
+                        if event and event['kind'] in TERMINAL | {'start'}:
+                            self.pending={key:value for key,value in self.pending.items() if key[0]!=session}
+                            if event['kind']=='start':state['turn']=event.get('turn_id','')
                         payload=record.get('payload',{})
                         if record.get('type')=='response_item' and isinstance(payload,dict):
                             call_id=payload.get('call_id')
@@ -117,12 +175,19 @@ class CodexLogs:
                                 self.pending[(session,call_id)]=state['turn']
                             if payload.get('type')=='function_call_output' and (session,call_id) in self.pending:
                                 input_turn=self.pending.pop((session,call_id))
-                                event=dict(provider='codex',session_id=session,kind='running',turn_id=input_turn,timestamp=0,metadata_complete=True,source='codex-local-log')
+                                waiting=any(key[0]==session and turn==input_turn for key,turn in self.pending.items())
+                                event=dict(provider='codex',session_id=session,kind='waiting' if waiting else 'running',turn_id=input_turn,timestamp=0,metadata_complete=True,source='codex-local-log')
                         if event:
                             batch.append(event)
                     except (ValueError,TypeError,AttributeError,RecursionError):
                         self.clear_details(session)
                         batch.append(self.unknown(session))
+                recovered=recover_lifecycle(path,state['offset'],session) if uncertain else None
+                if recovered is not None:
+                    batch=recovered['events']
+                    state['turn']=recovered['turn']
+                    self.pending={key:value for key,value in self.pending.items() if key[0]!=session}
+                    self.pending.update(recovered['pending'])
                 info=self.details.setdefault(session,{})
                 turn=info.get('activity_turn','')
                 if not info.get('latest_request') and (uncertain or state['first'] or state.get('request_recovery_turn')!=turn):
@@ -136,7 +201,9 @@ class CodexLogs:
                     if batch:
                         last=batch[-1]
                         if last['kind'] not in TERMINAL or last.get('timestamp',0)>=self.started:
-                            events.append(last)
+                            if recovered is not None and last['kind'] not in TERMINAL:
+                                events.extend(batch)
+                            else:events.append(last)
                 else:
                     events.extend(batch)
             except OSError:

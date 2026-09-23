@@ -311,6 +311,24 @@ class WindowsPower:
                     self._native.clear_request(self._handle)
             self.required = required
 
+    def set_dry_run(self,dry_run: bool) -> None:
+        if not isinstance(dry_run,bool): raise ValueError('Mode must be a boolean')
+        with self._lock:
+            if self._closed: raise RuntimeError('Power adapter is closed')
+            if self.dry_run==dry_run: return
+            previous=self.dry_run
+            wanted=self.required
+            # Clear a real request before claiming observation mode.
+            self.set_required(False)
+            self.dry_run=dry_run
+            try:
+                self.set_required(wanted)
+            except Exception:
+                # A failed acquisition must leave the previous simulation state intact.
+                self.dry_run=previous
+                self.required=wanted if previous else False
+                raise
+
     def process_names(self) -> set[str]:
         """Read executable basenames only; failure raises instead of empty success."""
         return self._native.process_names()

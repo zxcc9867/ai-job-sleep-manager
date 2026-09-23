@@ -22,7 +22,7 @@ class RequestFlowTests(unittest.TestCase):
             p=Path(d)/('rollout-'+SID+'.jsonl')
             p.write_text(''.join(json.dumps(r)+'\n' for r in records),encoding='utf-8')
             reader=CodexLogs(d)
-            with patch('sleep_manager.codex_logs.MAX_READ',2048): events=reader.poll()
+            with patch('sleep_manager.codex_logs.MAX_READ',2048), patch('sleep_manager.codex_logs.recover_lifecycle',return_value=None): events=reader.poll()
             return reader.details.get(SID,{}),events
 
     def test_request_outside_tail_is_recovered_without_changing_lifecycle(self):
