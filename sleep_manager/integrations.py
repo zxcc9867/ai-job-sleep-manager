@@ -53,6 +53,8 @@ def normalize_hook(provider: str, payload: dict) -> dict | None:
     kind = 'unknown'
     metadata_complete = False
     background_active = None
+    parent_registry_empty = False
+    main_stop_candidate = False
     task_id = ''
     if event == 'Notification':
         notice = payload.get('notification_type')
@@ -81,6 +83,13 @@ def normalize_hook(provider: str, payload: dict) -> dict | None:
             metadata_complete = event == 'SubagentStart'
             if event == 'SubagentStop' and payload.get('stop_hook_active') is not False:
                 kind = 'unknown'
+            elif event == 'SubagentStop' and provider == 'claude':
+                tasks, crons = payload.get('background_tasks'), payload.get('session_crons')
+                parent_registry_empty = (isinstance(tasks, list) and isinstance(crons, list)
+                                         and not tasks and not crons)
+                if parent_registry_empty:
+                    metadata_complete = True
+                    background_active = False
     elif event == 'Stop' and provider == 'claude':
         tasks, crons = payload.get('background_tasks'), payload.get('session_crons')
         registry_valid = (isinstance(tasks, list) and isinstance(crons, list)
@@ -89,6 +98,7 @@ def normalize_hook(provider: str, payload: dict) -> dict | None:
             background_active = bool(tasks)
             if tasks:
                 kind, metadata_complete = 'running', True
+                main_stop_candidate = payload.get('stop_hook_active') is False
             elif not crons and payload.get('stop_hook_active') is False:
                 kind, metadata_complete = 'complete', True
     result = dict(provider=provider, session_id=session_id, kind=kind,
@@ -98,6 +108,10 @@ def normalize_hook(provider: str, payload: dict) -> dict | None:
     if project: result['project']=project
     if background_active is not None:
         result['background_active'] = background_active
+    if parent_registry_empty:
+        result['parent_registry_empty'] = True
+    if main_stop_candidate:
+        result['main_stop_candidate'] = True
     return result
 
 

@@ -13,6 +13,9 @@ EMPTY = '\n\n'.join(name + ':\nNone.' for name in (
 
 
 class FakeNative:
+    def check_shutdown_privilege(self):
+        pass
+
     def __init__(self):
         self.calls = []
         self.allowed = True
@@ -125,6 +128,66 @@ class PowerTests(unittest.TestCase):
         result = parse_requests(EMPTY.replace('DISPLAY:\nNone.', 'DISPLAY:\n[PROCESS] secret-path\nprivate reason'))
         self.assertEqual(result, ['external_power_request:DISPLAY'])
         self.assertEqual(parse_requests('SYSTEM:\nNone.'), ['power_requests_unknown:unrecognized_output'])
+
+    def test_observed_korean_inventory_allows_dry_shutdown(self):
+        inventory = """DISPLAY:
+없습니다.
+
+SYSTEM:
+없습니다.
+
+AWAYMODE:
+없습니다.
+
+실행:
+없습니다.
+
+PERFBOOST:
+없습니다.
+
+ACTIVELOCKSCREEN:
+없습니다.
+"""
+        self.native.output = (0, inventory)
+        power = WindowsPower(dry_run=True, _native=self.native)
+        self.assertEqual(power.external_blockers(), [])
+        power.shutdown()
+        self.assertEqual(power.dry_run_requests, 1)
+        self.assertEqual(self.native.calls, [])
+
+    def test_observed_korean_active_requests_remain_blockers(self):
+        inventory = """DISPLAY:
+없습니다.
+SYSTEM:
+[DRIVER] redacted
+A driver is keeping the system awake.
+AWAYMODE:
+없습니다.
+실행:
+[PROCESS] redacted
+A process is running.
+PERFBOOST:
+없습니다.
+ACTIVELOCKSCREEN:
+없습니다.
+"""
+        self.assertEqual(parse_requests(inventory),
+                         ['external_power_request:SYSTEM', 'external_power_request:EXECUTION'])
+        self.native.output = (0, inventory)
+        power = WindowsPower(dry_run=True, _native=self.native)
+        with self.assertRaisesRegex(RuntimeError, 'external_power_request:SYSTEM'):
+            power.suspend()
+        power.shutdown()
+        self.assertEqual(power.dry_run_requests, 1)
+        self.assertEqual(self.native.calls, [])
+
+    def test_duplicate_korean_and_english_execution_sections_are_unknown(self):
+        inventory = EMPTY + '\n실행:\n없습니다.'
+        self.assertEqual(parse_requests(inventory), ['power_requests_unknown:unrecognized_output'])
+
+    def test_partial_localized_inventory_is_never_assumed_empty(self):
+        self.assertEqual(parse_requests('실행:\n없습니다.'),
+                         ['power_requests_unknown:unrecognized_output'])
 
     def test_closed_adapter_cannot_be_reactivated(self):
         self.power.close()

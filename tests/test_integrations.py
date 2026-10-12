@@ -41,6 +41,9 @@ class IntegrationTests(unittest.TestCase):
         result = self.event(background_tasks=[{'id': 'b', 'status': 'running', 'command': 'secret'}], session_crons=[], stop_hook_active=False)
         self.assertEqual(result['kind'], 'running')
         self.assertTrue(result['background_active'])
+        self.assertTrue(result['main_stop_candidate'])
+        continuation = self.event(background_tasks=[{'id': 'b'}], session_crons=[], stop_hook_active=True)
+        self.assertNotIn('main_stop_candidate', continuation)
 
     def test_scheduled_continuation_is_not_complete(self):
         result = self.event(background_tasks=[], session_crons=[{'id': 'cron'}], stop_hook_active=False)
@@ -64,6 +67,23 @@ class IntegrationTests(unittest.TestCase):
             self.assertEqual((start['kind'], start['task_id']), ('child_start', 'child1'))
             self.assertEqual((stop['kind'], stop['task_id']), ('child_stop', 'child1'))
             self.assertFalse(stop['metadata_complete'])
+
+    def test_claude_subagent_stop_reports_empty_parent_registry(self):
+        stop = self.event(event='SubagentStop', agent_id='child1', stop_hook_active=False,
+                          background_tasks=[], session_crons=[])
+        self.assertEqual(stop['kind'], 'child_stop')
+        self.assertTrue(stop['metadata_complete'])
+        self.assertFalse(stop['background_active'])
+        self.assertTrue(stop['parent_registry_empty'])
+        self.assertNotIn('last_assistant_message', stop)
+
+    def test_claude_subagent_stop_does_not_claim_empty_when_registry_is_missing_or_busy(self):
+        for fields in ({}, {'background_tasks': [{'id': 'other'}], 'session_crons': []},
+                       {'background_tasks': [], 'session_crons': [{'id': 'wake'}]},
+                       {'background_tasks': [], 'session_crons': [], 'stop_hook_active': True}):
+            with self.subTest(fields=fields):
+                stop = self.event(event='SubagentStop', agent_id='child1', **fields)
+                self.assertNotEqual(stop.get('parent_registry_empty'), True)
 
     def test_malformed_inputs_are_ignored_or_unknown(self):
         module = self.module()

@@ -24,6 +24,9 @@ from sleep_manager.claude_details import ClaudeDetails
 class PreviewPower:
     dry_run = True
 
+    def diagnostics(self):
+        return dict(request_active=False)
+
     def input_idle_seconds(self):
         return 3600
 
@@ -59,9 +62,15 @@ class PreviewReader:
         return []
 
 
-def capture(scenario, output):
+def capture(scenario, output, theme='light'):
     with tempfile.TemporaryDirectory(prefix='ai-sleep-preview-') as folder:
-        controller = Controller(Store(Path(folder)), PreviewPower(), PreviewReader())
+        store=Store(Path(folder))
+        store.save_theme(theme)
+        power=PreviewPower()
+        if scenario=='recovery':
+            store.save_execution_dry_run(False)
+            power.dry_run=False  # PreviewPower is a fake; no native power calls.
+        controller = Controller(store, power, PreviewReader())
         sessions = [('codex', 'demo-codex-refactoring'), ('claude', 'demo-claude-tests'), ('codex', 'demo-codex-review')]
         for provider, session in sessions:
             controller._accept(dict(provider=provider, session_id=session, kind='start'))
@@ -82,6 +91,11 @@ def capture(scenario, output):
             for provider, session in sessions[:2]:
                 controller._accept(dict(provider=provider, session_id=session, kind='complete'))
             controller._accept(dict(provider='codex', session_id=sessions[0][1], kind='unknown'))
+        elif scenario == 'recovery':
+            for provider, session in (sessions[0],sessions[2]):
+                controller._accept(dict(provider=provider,session_id=session,kind='complete'))
+            controller._accept(dict(provider='claude',session_id='demo-claude-tests',kind='interrupted'))
+            controller.restored_jobs.add('claude:demo-claude-tests')
         args = SimpleNamespace(smoke_ui=False, screenshot=None, data_dir=Path(folder))
         window = Window(controller, args, [sys.executable, 'app.py'])
         window.catalog=PreviewCatalog()
@@ -94,7 +108,16 @@ def capture(scenario, output):
         window.claude_details=ClaudeDetails(Path(folder)/'projects')
         window.root.geometry('+30+20')
         if scenario=='shutdown': window.show_complete.set(True)
-        if scenario in ('settings','large_text','settings_unsaved'): window.toggle_settings()
+        if scenario=='recovery': window.show_history.set(True)
+        if scenario in ('settings','large_text','settings_unsaved','detection','appearance'): window.toggle_settings()
+        if scenario=='detection': window.settings_tabs.select(1)
+        if scenario=='appearance': window.settings_tabs.select(2)
+        if scenario=='diagnostics':
+            from sleep_manager import __version__
+            controller.diagnostics=lambda:dict(version=__version__,pid=4321,run_id='example-run',
+                database_path='C:/Example/AIJobSleepManager/events.sqlite3',settings=store.settings(),
+                shutdown_permission=dict(available=True,error_code=0),power_action={},last_error='')
+            window.diagnose()
         if scenario in ('settings','settings_unsaved'):
             window.minutes.set('5');window.action.set('정상 종료')
             window.apply_delay()
@@ -104,6 +127,9 @@ def capture(scenario, output):
             window.root.geometry('1000x900+30+20')
         window.root.lift()
         window.root.attributes('-topmost', True)
+        if scenario=='diagnostics':
+            window.diagnostics_window.attributes('-topmost',True)
+            window.diagnostics_window.lift()
         if scenario=='activity': window.root.geometry(f'1080x{min(740,window.root.winfo_screenheight()-80)}+30+20')
 
         def save():
@@ -112,6 +138,10 @@ def capture(scenario, output):
                 window.table.selection_set('codex:demo-codex-refactoring')
                 window.show_job_details()
             window.root.update()
+            if scenario=='recovery':
+                window.table.selection_set('claude:demo-claude-tests')
+                window.show_job_details();window.root.update()
+                assert '재부팅' in window.details.get('1.0','end')
             if scenario=='claude':
                 window.table.selection_set('claude:demo-claude-tests')
                 window.show_job_details();window.root.update()
@@ -127,7 +157,8 @@ def capture(scenario, output):
             # Allow the Windows compositor to paint the updated selection before capture.
             time.sleep(.2)
             # DWM bounds are physical pixels even when Tk uses DPI-virtualized coordinates.
-            hwnd=ctypes.windll.user32.GetParent(window.root.winfo_id())
+            target=window.diagnostics_window if scenario=='diagnostics' else window.root
+            hwnd=ctypes.windll.user32.GetParent(target.winfo_id())
             rect=wintypes.RECT()
             result=ctypes.windll.dwmapi.DwmGetWindowAttribute(hwnd,9,ctypes.byref(rect),ctypes.sizeof(rect))
             if result: raise OSError('Cannot obtain physical window bounds')
@@ -142,5 +173,7 @@ def capture(scenario, output):
 if __name__ == '__main__':
     destination = Path(__file__).resolve().parents[1] / 'docs' / 'images'
     destination.mkdir(parents=True, exist_ok=True)
-    for scenario in ('running', 'countdown', 'paused', 'unknown', 'shutdown', 'activity', 'settings', 'claude'):
+    for scenario in ('running', 'countdown', 'paused', 'unknown', 'shutdown', 'activity', 'settings', 'claude','recovery','detection','diagnostics'):
         capture(scenario, destination / (scenario + '.png'))
+    for scenario,filename in [('running','dark'),('appearance','dark-settings'),('diagnostics','dark-diagnostics')]:
+        capture(scenario,destination/(filename+'.png'),theme='dark')

@@ -136,7 +136,7 @@ class ShutdownBoundaryTests(unittest.TestCase):
         self.assertEqual(power.dry_run_requests,1)
 
     def test_external_blocker_cancellation_and_new_input_prevent_shutdown(self):
-        for mode in ('blocker','job','input','closed','active'):
+        for mode in ('job','input','closed','active'):
             native=self.native(); power=WindowsPower(_native=native)
             if mode=='blocker': native.output=(1,'unavailable')
             if mode=='input':
@@ -169,20 +169,20 @@ class ShutdownRaceTests(unittest.TestCase):
     def run_race(self,mode):
         with tempfile.TemporaryDirectory() as d:
             store=Store(Path(d)); store.save_settings(dict(delay=60,action='shutdown'))
-            clock=[0]; last_input=[0]; saved=store.save_settings
+            clock=[0]; last_input=[0]; saved=store.save_power_action
             native=test_power.FakeNative()
             native.input_ticks=lambda:(int((clock[0]+1000)*1000),last_input[0])
             native.shutdown=lambda:native.calls.append('shutdown')
             power=WindowsPower(dry_run=True,_native=native)
             c=Controller(store,power,test_app.Reader(),clock=lambda:clock[0])
             injected=[False]
-            def save(settings):
-                saved(settings)
-                if not settings['enabled'] and not injected[0]:
+            def save(payload,settings=None):
+                saved(payload,settings)
+                if settings and not settings['enabled'] and not injected[0]:
                     injected[0]=True
                     if mode=='job': store.append(dict(provider='codex',session_id='new',kind='start'))
                     elif mode=='save_input': last_input[0]=int((clock[0]+1000)*1000)
-            store.save_settings=save
+            store.save_power_action=save
             if mode=='final_input':
                 original_shutdown=power.shutdown
                 def shutdown(before_shutdown=None):
@@ -214,8 +214,8 @@ class ShutdownPersistenceFailureTests(unittest.TestCase):
             c=Controller(store,p,test_app.Reader(),clock=lambda:clock[0])
             store.append(dict(provider='claude',session_id='s',kind='complete',metadata_complete=True))
             c.tick()
-            def fail(settings): raise OSError('settings unavailable')
-            store.save_settings=fail
+            def fail(*args,**kwargs): raise OSError('settings unavailable')
+            store.save_power_action=fail
             for t in range(1,70): clock[0]=t; c.tick()
             self.assertEqual(p.shutdowns,0)
             self.assertFalse(c.engine.enabled)

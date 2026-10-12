@@ -14,6 +14,18 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(len(rows),1)
             self.assertNotIn('prompt',rows[0][1])
             self.assertNotIn('SECRET',repr(rows))
+    def test_claude_stop_evidence_survives_queue_without_private_payload(self):
+        with tempfile.TemporaryDirectory() as d:
+            s=Store(Path(d))
+            e={'provider':'claude','session_id':'s','kind':'child_stop',
+               'task_id':'child','parent_registry_empty':True,'main_stop_candidate':True,
+               'last_assistant_message':'SECRET'}
+            s.append(e)
+            stored=s.after(0)[0][1]
+            self.assertTrue(stored['parent_registry_empty'])
+            self.assertTrue(stored['main_stop_candidate'])
+            self.assertNotIn('last_assistant_message',stored)
+
     def test_concurrent_hook_writes_not_lost(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); Store(root)

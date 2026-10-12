@@ -113,6 +113,50 @@ class EngineTests(unittest.TestCase):
         e.ingest(ev('complete', background_active=True), 1)
         self.assertFalse(e.tick(100, 100).sleep_due)
 
+    def test_claude_last_subagent_stop_after_main_stop_starts_countdown(self):
+        e = Engine(delay=60)
+        e.ingest(ev('start', provider='claude', timestamp=1), 1)
+        e.ingest(ev('child_start', provider='claude', task_id='child', timestamp=2), 2)
+        e.ingest(ev('running', provider='claude', source='hook:Stop',
+                    background_active=True, main_stop_candidate=True, timestamp=3), 3)
+        self.assertEqual(e.tick(3, 3).mode, 'running')
+        e.ingest(ev('child_stop', provider='claude', source='hook:SubagentStop', task_id='child',
+                    metadata_complete=True, background_active=False,
+                    parent_registry_empty=True, timestamp=4), 4)
+        self.assertEqual(e.jobs['claude:s'].state, 'complete')
+        self.assertEqual(e.tick(4, 4).mode, 'countdown')
+
+    def test_claude_stop_continuation_cannot_finish_parent_on_subagent_stop(self):
+        e = Engine(delay=60)
+        e.ingest(ev('start', provider='claude', timestamp=1), 1)
+        e.ingest(ev('running', provider='claude', source='hook:Stop',
+                    background_active=True, main_stop_candidate=False, timestamp=2), 2)
+        e.ingest(ev('child_stop', provider='claude', source='hook:SubagentStop', task_id='child',
+                    metadata_complete=True, background_active=False,
+                    parent_registry_empty=True, timestamp=3), 3)
+        self.assertEqual(e.tick(3, 3).mode, 'running')
+
+    def test_claude_subagent_stop_without_prior_main_stop_cannot_finish_parent(self):
+        e = Engine(delay=60)
+        e.ingest(ev('start', provider='claude', timestamp=1), 1)
+        e.ingest(ev('child_stop', provider='claude', source='hook:SubagentStop', task_id='child',
+                    metadata_complete=True, background_active=False,
+                    parent_registry_empty=True, timestamp=2), 2)
+        self.assertEqual(e.tick(2, 2).mode, 'running')
+
+    def test_claude_old_or_missing_subagent_snapshot_keeps_power_protected(self):
+        e = Engine(delay=60)
+        e.ingest(ev('start', provider='claude', timestamp=1), 1)
+        e.ingest(ev('running', provider='claude', source='hook:Stop',
+                    background_active=True, main_stop_candidate=True, timestamp=3), 3)
+        e.ingest(ev('child_stop', provider='claude', source='hook:SubagentStop', task_id='old',
+                    metadata_complete=True, background_active=False,
+                    parent_registry_empty=True, timestamp=2), 4)
+        self.assertEqual(e.tick(4, 4).mode, 'running')
+        e.ingest(ev('child_stop', provider='claude', source='hook:SubagentStop', task_id='missing',
+                    metadata_complete=False, timestamp=4), 5)
+        self.assertEqual(e.tick(5, 5).mode, 'running')
+
     def test_repeated_completion_does_not_postpone_timer(self):
         e = Engine(delay=60)
         e.ingest(ev('start'), 0)

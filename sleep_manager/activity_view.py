@@ -150,6 +150,7 @@ def activity_fields(info,category):
     if category=='complete': activity='실행 종료 확인'
     elif category=='waiting': activity='사용자 답변·승인 대기'
     elif category=='unknown': activity='실행 상태를 다시 확인해야 합니다'
+    elif category=='interrupted': activity='Windows 재부팅 전 종료를 확인하지 못했습니다'
     elif category=='idle': activity='새 작업 시작 대기'
     elif not activity: activity='현재 활동 기록 미제공'
     elif age is not None and age>120: activity='새 활동 기록 대기 · 최근: '+activity

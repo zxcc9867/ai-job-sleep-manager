@@ -54,6 +54,12 @@ class Instance:
             self.kernel.CloseHandle(self.handle)
             self.handle=None
 
+def resolve_dry_run(store,force_observe=False):
+    return bool(force_observe or store.execution_dry_run())
+
+def requires_elevation(*,saved_dry,force_observe,activate,admin):
+    return not force_observe and not admin and (activate or not saved_dry)
+
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--hook',choices=['codex','claude'])
@@ -62,6 +68,7 @@ def main():
     parser.add_argument('--diagnose',action='store_true')
     parser.add_argument('--observe-seconds',type=int,default=0)
     parser.add_argument('--smoke-ui',action='store_true',help=argparse.SUPPRESS)
+    parser.add_argument('--activate-power-control',action='store_true',help=argparse.SUPPRESS)
     parser.add_argument('--screenshot',type=Path,help=argparse.SUPPRESS)
     args=parser.parse_args()
     if args.hook:
@@ -69,19 +76,45 @@ def main():
     from sleep_manager.power import WindowsPower
     if args.diagnose:
         with WindowsPower(dry_run=True) as power:
+            from sleep_manager import __version__
+            store=Store(args.data_dir)
             result=power.diagnostics()
             result['external_blockers']=power.external_blockers()
+            result['shutdown_permission']=power.shutdown_permission()
+            result['version']=__version__
+            result['pid']=os.getpid()
+            result['database_path']=str(store.path.resolve())
+            result['settings']=store.settings()
+            result['power_action']=store.power_action()
+            result['diagnostic_source']='standalone-readiness-check'
             result['python_version']=sys.version.split()[0]
             print(json.dumps(result,ensure_ascii=False,indent=2))
         return 0
     instance=Instance(args.data_dir)
     from sleep_manager.codex_logs import CodexLogs
     from sleep_manager.controller import Controller
-    power=WindowsPower(dry_run=args.dry_run or args.smoke_ui)
     store=Store(args.data_dir)
+    from sleep_manager.relaunch import is_administrator,request_admin_relaunch
+    force_observe=args.dry_run or args.smoke_ui
+    if requires_elevation(saved_dry=store.execution_dry_run(),force_observe=force_observe,
+                          activate=args.activate_power_control,admin=is_administrator()):
+        try:
+            accepted=request_admin_relaunch(args.data_dir,activate=args.activate_power_control)
+        except Exception:
+            instance.close()
+            raise
+        if accepted:
+            instance.close()
+            return 0
+        # A cancelled UAC prompt leaves saved mode/pause intact; this run is safe.
+        force_observe=True
+        args.elevation_cancelled=True
+    power=WindowsPower(dry_run=True if args.activate_power_control else resolve_dry_run(store,force_observe))
     reader=CodexLogs(Path(os.environ.get('CODEX_HOME',str(Path.home()/'.codex')))/'sessions')
     controller=Controller(store,power,reader)
     try:
+        if args.activate_power_control and not force_observe:
+            controller.set_execution_mode(False)
         if args.observe_seconds:
             until=time.monotonic()+max(1,min(args.observe_seconds,60))
             while time.monotonic()<until:

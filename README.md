@@ -6,7 +6,7 @@
 
 For developers who leave Codex or Claude Code working while they step away. The app watches observed job activity rather than treating an open AI window as an active job.
 
-> **Status: early implementation; real-world validation in progress.** 195 automated tests pass. Building and starting the Windows app have been verified in observation mode. Actual PC sleep/resume/shutdown and complete unattended workflows across all target environments have not been verified.
+> **Status: early implementation; real-world validation in progress.** The automated test suite passes. Building and starting the Windows app have been verified in observation mode. Actual PC sleep/resume/shutdown and complete unattended workflows across all target environments have not been verified.
 
 ![Dashboard showing main jobs, child jobs and power status](docs/images/running.png)
 
@@ -20,6 +20,7 @@ For developers who leave Codex or Claude Code working while they step away. The 
 - [Connect and configure](#connect-and-configure)
 - [Observation and actual power control](#observation-and-actual-power-control)
 - [Sleep and shutdown rules](#sleep-and-shutdown-rules)
+- [Recovery after a Windows restart](#recovery-after-a-windows-restart)
 - [Local data and privacy](#local-data-and-privacy)
 - [Troubleshooting](#troubleshooting)
 - [Development and packaging](#development-and-packaging)
@@ -42,11 +43,11 @@ The dashboard separates main jobs from child jobs, with counts for running, awai
 
 ### Current connections and historical unconfirmed records
 
-Unfinished records restored when the app starts are separated from the current list when there is no current connection evidence. Use **과거 미확인 기록 보기** (Show historical unconfirmed records) to inspect them. The notice shows how many are hidden and explicitly states that they still block automatic power transitions.
+Unfinished records restored when the app starts are separated from the current list when there is no current connection evidence. Use **과거 미확인·중단 기록 보기** (Show historical unconfirmed and interrupted records) to inspect them. The notice shows how many are hidden and explicitly states that they still block automatic power transitions.
 
-**연결 다시 확인** (Recheck connections) reads new lifecycle events and checks Claude's local session registry. A Claude connection is confirmed only when the session ID, PID and exact Windows process creation time match; stale PID files and reused PIDs do not prove a connection. A connected process is not evidence that its job is running or finished. The selected detail shows connection evidence and the last status-event time. New events bring a restored job back into the current list. Active jobs are never hidden just because they are old.
+**작업 상태 새로고침** (Recheck connections) reads new lifecycle events and checks Claude's local session registry. A Claude connection is confirmed only when the session ID, PID and exact Windows process creation time match; stale PID files and reused PIDs do not prove a connection. A connected process is not evidence that its job is running or finished. The selected detail shows connection evidence and the last status-event time. New events bring a restored job back into the current list. Active jobs are never hidden just because they are old.
 
-This is a display separation, not deletion or automatic completion. Missing/inaccessible registry data remains unconfirmed. The existing unknown-state power blocker is preserved; hiding an old record does not enable shutdown. The app does not automatically discard unresolved background jobs.
+This is a display separation, not deletion or automatic completion. Missing/inaccessible registry data remains unconfirmed. The existing unknown-state power blocker is preserved; hiding an old record does not enable shutdown. After checking the original AI window, you can select an inactive unknown or interrupted job and explicitly confirm that it ended. The app does not automatically discard unresolved background jobs.
 
 ### Claude Code task content
 
@@ -63,11 +64,13 @@ For Claude sessions already observed through hooks, the app matches the session 
 
 ### Readable controls and saved-setting feedback
 
-The app uses larger Korean fonts, stronger text contrast, wider rows and additional line spacing. Choose `기본 / 크게 / 아주 크게` (Default / Large / Extra large) under `전원 설정 → 글자 크기` (Power settings → Text size). Text size applies immediately, survives restarts and does not change power settings.
+The app uses larger Korean fonts, stronger text contrast, wider rows and additional line spacing. Under `설정 열기 → 화면·시작 설정` (Open settings → Display and startup), choose `밝은 모드 / 다크 모드` (Light / Dark) for the theme and `기본 / 크게 / 아주 크게` (Default / Large / Extra large) for text size. Both apply immediately and survive restarts without changing power settings, job states or unsaved power-setting edits. Open diagnostics and dropdown menus also follow the selected theme.
+
+![Dark mode and theme selection](docs/images/dark-settings.png)
 
 Wide windows show the job list and detail side by side; narrow windows stack them. Scroll the page for controls below the fold, and use the list's horizontal scrollbar or resize columns for long titles.
 
-After `설정 저장` (Save settings), a checkmark, timestamp and saved values appear near the button. Edited values are labeled unsaved, while the header continues to show the applied policy. Failed saves retain the previous policy. Saving a time/action does not change the execution mode.
+After `변경 내용 저장` (Save settings), a checkmark, timestamp and saved values appear near the button. Edited values are labeled unsaved, while the header continues to show the applied policy. Failed saves retain the previous policy. Saving a time/action does not change the execution mode.
 
 ![Mode selection, saved values and readable settings](docs/images/settings.png)
 
@@ -100,31 +103,48 @@ Alternatively, download and extract GitHub's **Code → Download ZIP**, then run
 
 `--dry-run` starts **observation mode**: no sleep-prevention request, sleep or shutdown is performed. Windows can still sleep according to its own policy. You can explicitly enable actual power control from the app. The Connect button still modifies hook configuration in observation mode.
 
-To start directly with actual power control, close any instance using the same data directory and run:
+To launch with the saved execution mode, close any instance using the same data directory and run:
 
 ```powershell
 python app.py
 ```
 
-`launch.cmd` starts the packaged app if available, otherwise the source app. Without `--dry-run`, it starts actual power control. The Git repository does not include executable bundles. Build the folder-based app using the instructions below; there is currently no installer, auto-update system or published executable release download.
+`launch.cmd` starts the packaged app if available, otherwise the source app. Without `--dry-run`, it restores the saved mode; a new installation starts in observation mode. The Git repository does not include executable bundles. Build the folder-based app using the instructions below; there is currently no installer, auto-update system or published executable release download.
+
+### Buttons with a clear purpose
+
+Settings are grouped into **Power behavior**, **Codex·Claude detection** and **Display/startup**. The light interface uses dark text and one blue accent; buttons include nearby descriptions and hover help.
+
+| Korean button | What happens when clicked |
+| --- | --- |
+| `자동 관리 켜기 / 끄기` | Enable / stop sleep protection during AI work and the configured completion action |
+| `Codex·Claude 감지 설정` | Back up existing AI settings and add job start/end notifications to this app |
+| `이 앱의 감지 설정 제거` | Remove this app's notifications and stop automatic management |
+| `작업 상태 새로고침` | Read the latest job records; never infer completion |
+| `이전 실행에서 완료를 확인하지 못한 작업 보기` | Show older jobs without a confirmed end; hiding them does not remove power blockers |
+| `상태·오류 확인` | Open a read-only summary and detailed record, with a local copy button |
+
+![AI detection settings and button explanations](docs/images/detection.png)
+
+![Readable status and error summary](docs/images/diagnostics.png)
 
 ## Connect and configure
 
 1. Choose a permanent program location; hook configuration includes that path.
-2. Start in observation mode and open `전원 설정` (Power settings).
-3. Click `AI 작업 감지 연결` (Connect AI job detection). Existing user settings are preserved and privately backed up before observer hooks are added.
+2. Start in observation mode and open `설정 열기` (Open settings) → `Codex·Claude 감지` (AI detection).
+3. Click `Codex·Claude 감지 설정` (Connect AI job detection). Existing user settings are preserved and privately backed up before observer hooks are added.
 4. Restart the AI apps and terminal sessions, and complete any hook trust review requested by those tools. Already-running sessions can have missing events.
-5. Run a short task and check the job list and `진단` (Diagnostics). A saved connection configuration is not proof that events are arriving.
-6. Choose a delay of **1–120 whole minutes** and `절전` (Sleep) or `정상 종료` (Normal shutdown), then click `설정 저장` (Save settings). The default delay is 10 minutes and the default action is sleep.
-7. Select `실제 전원 제어` (Actual power control) in the execution-mode dropdown and click `모드 전환` (Switch mode). Check the header's applied mode and any blocking reason.
-8. If diagnostics report a permission issue, use `관리자 권한으로 열기` (Open as administrator), shown in actual mode when the app is not elevated.
-9. Check whether another app's always-awake setting prevents the requested transition. Keep this app open or minimized while monitoring jobs.
+5. Run a short task and check the job list and `상태·오류 확인` (Diagnostics). A saved connection configuration is not proof that events are arriving.
+6. Choose a delay of **1–120 whole minutes** and `절전` (Sleep) or `정상 종료` (Normal shutdown), then click `변경 내용 저장` (Save settings). The default delay is 10 minutes and the default action is sleep.
+7. In Settings → Power behavior, select `실제 전원 제어` (Actual power control). Selection applies immediately. Windows requests administrator consent; approve it to reopen the app using the same data directory. Cancelling keeps the existing mode and pause state.
+8. Check the applied mode and `자동 관리 켜기` (Enable automatic management). Switching modes does not resume previously paused management. Actual shutdown privilege is still checked separately.
+9. Keep the app open or minimized. External sleep-prevention requests can defer sleep, but do not block normal shutdown.
 
-`연결 해제` (Disconnect) removes only matching observer hooks for the current launch path and pauses management. Connect does not change AI approval or deployment policies.
+`이 앱의 감지 설정 제거` (Disconnect) removes only matching observer hooks for the current launch path and pauses management. Connect does not change AI approval or deployment policies.
 
 ## Observation and actual power control
 
-Use **Power settings → Execution mode → select a mode → Switch mode**. Selecting an option alone does not apply it.
+Use **Settings → Power behavior → select a mode**. There is no extra Apply button. If actual control was saved, a normal unelevated launch also requests administrator consent. Cancelling opens that launch in observation mode without overwriting saved settings. [Windows UAC behavior](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shellexecutew).
 
 | Mode | Behavior |
 | --- | --- |
@@ -133,7 +153,15 @@ Use **Power settings → Execution mode → select a mode → Switch mode**. Sel
 
 Switching to actual control rechecks activity and starts a fresh full delay. It never immediately sleeps or shuts down just because an observation-mode timer expired. Returning to observation releases this app's physical sleep-prevention request. Failed mode changes report the error rather than claiming success. Pause and unknown-state blockers remain in effect after switching.
 
-**Mode changes apply only to the current run.** On the next launch, command-line options determine the mode. A shortcut containing `--dry-run` starts in observation mode again. The settings panel explains the next start mode for the same launch options. Saved delay, completion action, pause state and text size persist independently.
+**Mode changes are saved for the next ordinary launch.** A new installation starts in observation mode. An explicit `--dry-run` launch forces observation for that launch, even if actual control was saved. The settings panel shows the applied mode and the next ordinary launch mode. Saved delay, completion action, pause state and text size persist independently.
+
+## Recovery after a Windows restart
+
+If Windows restarts and an observed AI job has no confirmed end event from before that restart, the app marks it **Unconfirmed before restart** when it next launches. The record alone cannot tell whether the job had finished before Windows restarted. The old job remains a power-transition blocker. Select it, check the original Codex or Claude window and its work, then use `이 작업이 끝났음을 확인` (Confirm job ended) only when you know it has stopped. The app records that confirmation and starts a fresh full delay; it does not infer completion from elapsed time or from a missing process.
+
+![Unconfirmed job and manual end confirmation after a restart](docs/images/recovery.png)
+
+`설정 열기` (Power settings) includes an optional **Start when signing in to Windows** switch. It starts the app after user sign-in; it cannot keep the PC awake or resume an AI job before sign-in. Diagnostics records limited local power decisions, mode changes and restart detection without prompt or response bodies. Actual Windows shutdown and a Windows Update restart remain distinct events: the app cannot prevent every system-initiated restart.
 
 ## Sleep and shutdown rules
 
@@ -143,6 +171,7 @@ Switching to actual control rechecks activity and starts a fresh full delay. It 
 | At least one main/child/background job is running | Prevent automatic sleep; cancel countdown | Same |
 | Jobs await human input/approval; none are running | Eligible for sleep after the delay | Do not schedule shutdown; allow existing Windows sleep policy |
 | All observed work has finished | Request sleep after the delay | Request normal shutdown after the delay |
+| A pre-restart job has no confirmed end, or its state is unknown | Hold the transition until the user verifies the original AI session and confirms that job has ended | Same |
 | New activity or mouse/keyboard input during countdown | Cancel/reset the countdown | Same |
 | Job state is unknown | Hold transition; temporary recovery protection | Do not request shutdown |
 | Pause or close this app | Release this app's prevention request | Same |
@@ -155,7 +184,7 @@ If uncertainty persists with no other running work, recovery protection lasts **
 
 ![Unknown state requiring attention](docs/images/unknown.png)
 
-Other applications' power requests and permission/query failures can block a transition. Sleep retries are approximately 30 seconds apart; inspect Diagnostics. Display blanking is allowed; the app does not keep the monitor lit.
+Other applications' power requests and permission/query failures can block **sleep**. Sleep retries are approximately 30 seconds apart; inspect Diagnostics. Display blanking is allowed; the app does not keep the monitor lit. These requests do not block normal shutdown.
 
 ### Normal shutdown is a request, not forced termination
 
@@ -163,7 +192,13 @@ Other applications' power requests and permission/query failures can block a tra
 
 Shutdown uses Windows `ExitWindowsEx(EWX_POWEROFF)` without `EWX_FORCE` or `EWX_FORCEIFHUNG`. It does not kill processes or automatically save every application's documents. Applications can require user action or block shutdown.
 
-The app rechecks jobs, user input and other power requests immediately before transition. Before requesting shutdown, it persists a paused state to avoid repeated shutdown attempts after cancellation or restart. After investigating a failure or cancelled shutdown, resume management manually. “Shutdown requested” means Windows accepted the request, not that the PC has been confirmed powered off.
+Normal shutdown rechecks AI jobs, user input and settings immediately before the Windows call. Chrome, ChatGPT, Claude and driver sleep-prevention requests, or a failed `powercfg` query, do not block shutdown. Permission readiness is checked against the actual `SeShutdownPrivilege`; administrator status alone is not a readiness result.
+
+Known preflight timeouts and SQLite locks are rechecked every **30 seconds, up to 10 failed checks**. New work, input or changed settings cancel that retry cycle and restart the full delay. Permanent errors stop management and retain their cause. After the Windows call starts, the app never retries automatically, including when privilege restoration fails and delivery is uncertain.
+
+The last action state and the paused setting are persisted together before submission. The dashboard shows execution mode, management state, applied settings and the next action. Diagnostics includes version, run ID, PID, the exact SQLite path and persisted state. A restart or update does not enable previously paused management. “Shutdown requested” means Windows accepted the request, not that the PC has been confirmed powered off.
+
+For a daytime acceptance test, save your work, reopen the updated app, choose actual power control and a one-minute normal-shutdown delay, and explicitly resume management. Run a short AI job and let it finish without further keyboard or mouse input. Check that the PC powers off; after starting it again, compare the app's `shutdown_requested` audit and Windows System shutdown events. No actual shutdown test has been completed by the agent.
 
 ## Local data and privacy
 
@@ -193,10 +228,10 @@ Before moving the app: disconnect at the old location, restart AI sessions, clos
 | Claude job is visible but its content is missing | A matching local transcript and recent user-message boundary are needed. Check `claude_display_status` in Diagnostics. Child-agent details and remote transcripts are not supported. |
 | No job appears | Connect, restart AI sessions, complete hook trust review and check new events in Diagnostics. A transcript alone does not register a running Claude job. |
 | Generic job title | Use project name/session ID to identify it and assign a custom name. Claude automatic titles are unavailable. |
-| Settings saved but no shutdown | Check observation mode, paused management, unknown jobs, input/approval waits and external power requests. Saving does not enable actual control. |
+| Settings saved but no shutdown | Check observation mode, paused management, unknown jobs, input/approval waits and actual shutdown privilege. Saving does not enable actual control. External sleep-prevention requests do not block normal shutdown. |
 | `unobserved` appears as a job | Update to the current build. `unobserved` was a placeholder created from an open AI process, not a real session. Open apps no longer create job rows; use **Connect AI job detection** and start a new AI session if work is not detected. |
 | Countdown keeps resetting | New work or user input resets the full delay. |
-| Administrator button missing | It is hidden in observation mode or when already elevated. |
+| No administrator button | Select Actual power control; Windows permission approval and relaunch are handled automatically. Cancelling preserves the existing mode. |
 | Management paused after restart | Pause state persists, including after a shutdown request. Resume when ready. |
 | Already-running message | Use the existing window; change its mode in Power settings. |
 | Detection stopped after moving the app | Remove the old path's hooks and reconnect at the new path. |
@@ -247,7 +282,7 @@ The resulting folder runs without a separate Python installation. It is unsigned
 .\dist\AIJobSleepManager\AIJobSleepManager.exe --dry-run
 ```
 
-To regenerate the eight demonstration screenshots on a visible Windows desktop (Pillow is needed only for capture):
+To regenerate the eight standard demonstration screenshots on a visible Windows desktop (Pillow is needed only for capture):
 
 ```powershell
 python -m venv .docs-env
@@ -273,6 +308,7 @@ sleep_manager/
   storage.py                 # Local metadata/settings database
   power.py                   # Windows power and input boundaries
   ui.py                      # Tkinter interface
+  startup.py                 # Optional current-user sign-in launch
 scripts/capture_screenshots.py
 tests/
 docs/images/
@@ -282,15 +318,16 @@ build.ps1 / AIJobSleepManager.spec / launch.cmd
 
 ## Verification and limitations
 
-As of **2026-09-21**:
+As of **2026-10-04**:
 
 | Check | Result |
 | --- | --- |
-| Automated tests | 195 pass, including 10 Claude display regressions |
+| Automated tests | 245 tests pass, including theme persistence/switching, bounded shutdown retries, cancellation, persistent stop reasons and duplicate-request prevention; power transitions are mocked |
 | Claude local content extraction | Instructions and public responses extracted from 5 locally matched sessions; separate from lifecycle verification |
-| Source compilation, packaging and GUI smoke test | Verified in observation mode |
+| Source compilation, packaging and GUI smoke test | Passed; rebuilt GUI and hook installed after backups, with the existing shortcut path preserved; isolated observation-mode launch passed |
 | Windows prevention request create/set/clear/close | Previously verified with real APIs; sleep call excluded |
-| Packaged hook stdin handling and body removal | Previously verified |
+| Packaged hook stdin handling and body removal | Verified; packaged hook → isolated SQLite → controller countdown → one simulated shutdown → paused-state restoration passed |
+| Shutdown privilege readiness | Actual SeShutdownPrivilege probe available in this Windows session; no shutdown call made |
 | Codex desktop running-state observation | Verified from local records |
 | Codex CLI 0.139.0 / Claude Code 2.1.259 historical checks | Lifecycle reception observed; normal-work validation was limited by model/version or account-credit issues |
 | All four environments: finish, wait, resume | Incomplete |
@@ -298,4 +335,4 @@ As of **2026-09-21**:
 
 Log formats are version-dependent. Claude Stop is a completion candidate before other hooks can continue work; it is not proof that every background activity is finished. Not all long-running servers, child jobs or sessions are guaranteed to be discoverable. Display readers cannot fill those lifecycle gaps.
 
-Manual sleep, closing a laptop lid, low battery and Modern Standby have separate OS policies. Passive use such as video playback or downloads is not fully detected; other power requests are used as a safeguard. Event arrival and Windows transition cannot be perfectly atomic. Pausing or closing this app does not release requests owned by other applications.
+Manual sleep, closing a laptop lid, low battery and Modern Standby have separate OS policies. Passive use such as video playback or downloads is not fully detected; other power requests are used as a safeguard for sleep only. Event arrival and Windows transition cannot be perfectly atomic. Pausing or closing this app does not release requests owned by other applications.

@@ -81,16 +81,17 @@ class ModeControllerTests(unittest.TestCase):
 
 @unittest.skipUnless(__import__('os').name=='nt','Windows Tk UI')
 class ModeUITests(unittest.TestCase):
-    def test_mode_selection_requires_apply_and_updates_badge_and_keeps_draft(self):
+    def test_admin_mode_selection_updates_badge_and_keeps_draft(self):
         from sleep_manager.ui import Window
         with tempfile.TemporaryDirectory() as d:
             p=WindowsPower(dry_run=True,_native=Native());c=Controller(Store(Path(d)),p,Reader())
             w=Window(c,SimpleNamespace(smoke_ui=False,data_dir=Path(d)),[]);w.root.withdraw()
             try:
+                w.admin=True
                 w.minutes.set('7')
                 w.execution_mode.set('실제 전원 제어')
                 self.assertTrue(p.dry_run)
-                w.apply_execution_mode()
+                w.mode_select.event_generate('<<ComboboxSelected>>')
                 self.assertFalse(p.dry_run)
                 self.assertIn('실제',w.mode_badge.cget('text'))
                 self.assertEqual(w.minutes.get(),'7')

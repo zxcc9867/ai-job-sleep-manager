@@ -13,6 +13,7 @@ import os
 import subprocess
 import threading
 from collections.abc import Callable
+from .power_state import PowerActionFailure
 
 
 DWORD = C.c_uint32
@@ -84,14 +85,15 @@ def idle_seconds(now_ticks: int, last_input_ticks: int) -> float:
 
 
 _CATEGORIES = {'DISPLAY', 'SYSTEM', 'AWAYMODE', 'EXECUTION', 'PERFBOOST', 'ACTIVELOCKSCREEN'}
-_EMPTY = {'none.', '없음.', 'なし。', 'なし.'}
+_HEADINGS = {**{name: name for name in _CATEGORIES}, '실행': 'EXECUTION'}
+_EMPTY = {'none.', '없음.', '없습니다.', 'なし。', 'なし.'}
 
 
 def parse_requests(output: str) -> list[str]:
     """Accept only a complete known request inventory; redact caller details.
 
-    Windows' headings are normally English even with Korean localized empty
-    labels. Unknown locales/formats return unknown instead of assuming empty.
+    Windows can mix English headings with the Korean execution heading.
+    Normalize observed labels only; unknown formats still fail closed.
     """
     sections: dict[str, list[str]] = {}
     current = None
@@ -99,8 +101,8 @@ def parse_requests(output: str) -> list[str]:
         line = raw.strip().lstrip('\ufeff')
         if not line:
             continue
-        if line.endswith(':') and line[:-1] in _CATEGORIES:
-            current = line[:-1]
+        if line.endswith(':') and line[:-1] in _HEADINGS:
+            current = _HEADINGS[line[:-1]]
             if current in sections:
                 return ['power_requests_unknown:unrecognized_output']
             sections[current] = []
@@ -234,6 +236,10 @@ class _NativePower:
         self._with_shutdown_privilege(
             lambda: self._check(self.user.ExitWindowsEx(0x08, 0x80040000), 'ExitWindowsEx'))
 
+    def check_shutdown_privilege(self):
+        # Validate the actual token right and restore it; no power transition.
+        self._with_shutdown_privilege(lambda: None)
+
     def _with_shutdown_privilege(self, operation):
         # Temporarily enable only SeShutdownPrivilege, then restore its exact
         # prior state on success, error, and return from sleep. No UAC elevation.
@@ -288,6 +294,7 @@ class WindowsPower:
         self._closed = False
         self._lock = threading.RLock()
         self._native = _native if _native is not None else _NativePower()
+        self.submission_started = False
 
     def set_required(self, required: bool) -> None:
         with self._lock:
@@ -355,6 +362,13 @@ class WindowsPower:
         result['protection_limited'] = bool(result.get('modern_standby') and result.get('ac_power') is not True)
         return result
 
+    def shutdown_permission(self) -> dict:
+        try:
+            self._native.check_shutdown_privilege()
+            return {'available': True, 'error_code': 0}
+        except OSError as exc:
+            return {'available': False, 'error_code': getattr(exc, 'winerror', None) or exc.errno}
+
     def suspend(self, before_suspend: Callable[[], bool] | None = None) -> None:
         with self._lock:
             if self._closed or self.required:
@@ -378,12 +392,17 @@ class WindowsPower:
 
     def shutdown(self, before_shutdown: Callable[[], bool] | None = None) -> None:
         with self._lock:
+            self.submission_started = False
             if self._closed or self.required:
                 raise RuntimeError('Clear the active request before attempting shutdown')
             initial_input = self._native.input_ticks()[1]
-            blockers = self.external_blockers()
-            if blockers:
-                raise RuntimeError('Shutdown deferred: ' + ', '.join(blockers))
+            # Power requests describe sleep/display protection, not shutdown vetoes.
+            # Keep job/input checks and let Windows perform non-forced app closure.
+            if not self.dry_run:
+                try:
+                    self._native.check_shutdown_privilege()
+                except OSError as exc:
+                    raise PowerActionFailure('shutdown_privilege', str(exc)) from exc
             if before_shutdown is not None and not before_shutdown():
                 raise PowerActionCancelled('Shutdown deferred: job or management state changed')
             if self._native.input_ticks()[1] != initial_input:
@@ -393,7 +412,12 @@ class WindowsPower:
             if self.dry_run:
                 self.dry_run_requests += 1
             else:
-                self._native.shutdown()
+                self.submission_started = True
+                try:
+                    self._native.shutdown()
+                except Exception as exc:
+                    # The API or privilege restoration may fail after acceptance.
+                    raise PowerActionFailure('native_shutdown', str(exc), request_started=True) from exc
 
     def close(self) -> None:
         with self._lock:

@@ -26,6 +26,14 @@ class JobViewTests(unittest.TestCase):
         self.assertEqual(row['plan_total'],0)
         self.assertIn('세부 단계',row['remaining'])
 
+    def test_main_reply_finished_but_background_unconfirmed_is_not_labeled_plain_working(self):
+        job=Job('claude','s',state='running',background=True,awaiting_claude_background=True)
+        row=job_row(job,{},'shutdown')
+        self.assertEqual(row['category'],'running')
+        self.assertTrue(row['pending'])
+        self.assertIn('백그라운드',row['state'])
+        self.assertIn('최종',row['reason'])
+
     def test_waiting_and_unknown_explain_why_work_remains(self):
         for state in ('waiting','unknown'):
             row=job_row(Job('codex','s',state=state),{},'shutdown')
@@ -46,7 +54,7 @@ class JobViewTests(unittest.TestCase):
 
     def test_summary_has_parallel_state_counts(self):
         rows=[job_row(Job('codex',x,state=x),{},'sleep') for x in ('running','waiting','unknown','complete')]
-        self.assertEqual(task_summary(rows),dict(running=1,waiting=1,unknown=1,complete=1,pending=3))
+        self.assertEqual(task_summary(rows),dict(running=1,waiting=1,unknown=1,interrupted=0,complete=1,pending=3))
 
     def test_plan_only_accepts_explicit_plan_and_resets_on_new_turn(self):
         info={}

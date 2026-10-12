@@ -133,7 +133,7 @@ class JobCatalog:
 def job_row(job,info,action):
     tool='Codex' if job.provider=='codex' else 'Claude Code'
     category=('running' if job.active else 'unknown' if job.state=='unknown' or job.unknown_children else job.state)
-    state={'running':'작업 중','waiting':'응답 필요','unknown':'확인 필요','complete':'완료','idle':'연결됨'}[category]
+    state={'running':'작업 중','waiting':'응답 필요','unknown':'확인 필요','interrupted':'재부팅 전 미확인','complete':'완료','idle':'연결됨'}[category]
     if job.active and job.state!='running': state='하위 작업 중'
     title=clean_text(info.get('label')) or clean_text(info.get('title'))
     project=clean_text(info.get('project')) or clean_text(getattr(job,'project','')) or '프로젝트 미확인'
@@ -147,26 +147,34 @@ def job_row(job,info,action):
         remaining=('진행: '+current['step'] if current else f'보고된 계획 {len(remaining_steps)}개 남음') if plan else '진행 중 · 세부 단계 정보 없음'
         if plan and not remaining_steps: remaining='보고된 계획 완료 · 실행 종료 대기'
         if job.children: reason+=f' 실행 중인 하위 작업 {len(job.children)}개가 있습니다.'
+        if job.provider=='claude' and job.awaiting_claude_background:
+            state='백그라운드 확인 중'
+            reason='메인 답변은 끝났지만 Claude가 백그라운드 작업을 보고했습니다. 최종 종료가 확인될 때까지 전원 전환을 보류합니다.'
+            remaining='백그라운드 작업 종료 확인 대기'
     elif category=='waiting':
         reason=('사용자 답변·승인이 남아 있어 정상 종료하지 않습니다.' if action=='shutdown' else '사용자 답변·승인을 기다립니다. 다른 실행 작업이 없으면 절전 대기를 시작합니다.')
         remaining='사용자 답변 또는 승인 필요'
     elif category=='unknown':
         reason='작업 종료를 확인할 정보가 부족합니다. 연결과 원래 AI 창을 확인해 주세요.'
         remaining='작업 상태 재확인 필요'
+    elif category=='interrupted':
+        reason='Windows 재부팅 전에 작업 종료 기록이 없습니다. 원래 AI 창과 결과를 확인할 때까지 자동 전원 전환을 보류합니다.'
+        remaining='중단된 작업 확인 필요'
     elif category=='complete':
-        reason='작업 실행 종료가 관측되었습니다. 결과의 성공·품질을 판정한 것은 아닙니다.'
+        reason=('사용자가 원래 AI 창에서 실행 종료를 확인했습니다. 결과의 성공·품질은 별도 확인이 필요합니다.'
+                if job.completion_source=='user' else '작업 실행 종료가 관측되었습니다. 결과의 성공·품질을 판정한 것은 아닙니다.')
         remaining='실행 종료 확인'
     else:
         reason='세션이 연결되었습니다. 실제 작업 시작을 기다립니다.'
         remaining='작업 시작 대기'
     return dict(key=job.provider+':'+job.session_id,tool=tool,title=title,project=project,state=state,
-                category=category,pending=category in ('running','waiting','unknown'),remaining=remaining,
+                category=category,pending=category in ('running','waiting','unknown','interrupted'),remaining=remaining,
                 reason=reason,plan=plan,plan_done=done,plan_total=len(plan),session_id=job.session_id,
                 parent_id=info.get('parent_id',''),**activity_fields(info,category))
 
 
 def task_summary(rows):
-    result={state:sum(r['category']==state for r in rows) for state in ('running','waiting','unknown','complete')}
+    result={state:sum(r['category']==state for r in rows) for state in ('running','waiting','unknown','interrupted','complete')}
     result['pending']=sum(r['pending'] for r in rows)
     return result
 
@@ -175,7 +183,7 @@ def group_jobs(rows):
     """Build a display-only forest; never mutate jobs or power decisions."""
     nodes={r['key']:dict(r,own_category=r['category'],parent_key='',is_child=bool(r.get('parent_id')),
                          relation='',child_count=0) for r in rows}
-    priority={'running':0,'unknown':1,'waiting':2,'complete':3,'idle':4}
+    priority={'running':0,'unknown':1,'interrupted':2,'waiting':3,'complete':4,'idle':5}
     for key,row in nodes.items():
         parent=key.split(':',1)[0]+':'+row.get('parent_id','')
         if row['is_child']:
@@ -208,8 +216,8 @@ def group_jobs(rows):
         category=min([row['category']]+[c['category'] for c in pending],key=priority.get)
         row['category']=category; row['pending']=True
         if category!=row['own_category']:
-            row['state']={'running':'하위 작업 중','unknown':'하위 확인 필요','waiting':'하위 응답 필요'}[category]
-            row['remaining']={'running':'하위 작업 실행 종료 대기','unknown':'하위 작업 상태 확인 필요','waiting':'하위 작업에 답변·승인 필요'}[category]
+            row['state']={'running':'하위 작업 중','unknown':'하위 확인 필요','interrupted':'하위 작업 중단','waiting':'하위 응답 필요'}[category]
+            row['remaining']={'running':'하위 작업 실행 종료 대기','unknown':'하위 작업 상태 확인 필요','interrupted':'하위 작업 중단 확인 필요','waiting':'하위 작업에 답변·승인 필요'}[category]
             row['current_activity']=row['remaining']
             row['reason']='이 작업에서 시작한 하위 작업이 남아 있습니다. 아래 하위 작업의 상태를 확인해 주세요.'
     # Parent requests are context, never invented direct instructions to a child.
@@ -243,7 +251,7 @@ def group_jobs(rows):
 
 def group_summary(rows):
     counts=task_summary([r for r in rows if not r['is_child']])
-    for state in ('running','waiting','unknown','complete'):
+    for state in ('running','waiting','unknown','interrupted','complete'):
         counts['child_'+state]=sum(r['is_child'] and r['own_category']==state for r in rows)
-    counts['child_pending']=sum(r['is_child'] and r['own_category'] in ('running','waiting','unknown') for r in rows)
+    counts['child_pending']=sum(r['is_child'] and r['own_category'] in ('running','waiting','unknown','interrupted') for r in rows)
     return counts

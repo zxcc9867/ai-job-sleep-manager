@@ -12,6 +12,7 @@ class Job:
     project: str = ''
     children: set = field(default_factory=set)
     background: bool = False
+    awaiting_claude_background: bool = False
     unknown_children: dict = field(default_factory=dict)
     child_timestamps: dict = field(default_factory=dict)
     completed_children: set = field(default_factory=set)
@@ -19,6 +20,7 @@ class Job:
     last_timestamp: float = 0
     unknown_since: float | None = None
     updated: float = 0
+    completion_source: str = ''
 
     @property
     def active(self):
@@ -33,6 +35,7 @@ class Decision:
     running: int = 0
     waiting: int = 0
     unknown: int = 0
+    interrupted: int = 0
 
 class Engine:
     def __init__(self, delay=600, recovery=1800, enabled=True, action="sleep"):
@@ -55,7 +58,7 @@ class Engine:
         if provider not in ('codex', 'claude') or not isinstance(session, str) or not session:
             raise ValueError('Invalid event identity')
         kind = event.get('kind')
-        if kind not in {'start', 'running', 'waiting', 'complete', 'failed', 'cancelled', 'session_end', 'session_start', 'child_start', 'child_stop', 'unknown'}:
+        if kind not in {'start', 'running', 'waiting', 'complete', 'failed', 'cancelled', 'session_end', 'session_start', 'child_start', 'child_stop', 'unknown', 'interrupted'}:
             raise ValueError('Invalid event kind')
         key = provider + ':' + session
         job = self.jobs.setdefault(key, Job(provider, session))
@@ -80,9 +83,14 @@ class Engine:
         if event.get('project'): job.project=project_name(event['project'])
         job.updated = now
         if kind == 'session_start':
+            job.awaiting_claude_background = False
             return
         self.seen_work = True
         if kind in ('start', 'running'):
+            job.completion_source = ''
+            job.awaiting_claude_background = (provider == 'claude' and event.get('source') == 'hook:Stop'
+                                               and event.get('background_active') is True
+                                               and event.get('main_stop_candidate') is True)
             job.state = 'running'
             job.final_log_turn = None
             if turn:
@@ -104,14 +112,40 @@ class Engine:
             else:
                 job.completed_children.add(child)
                 job.unknown_children.pop(child,None)
+            if (job.awaiting_claude_background and event.get('parent_registry_empty') is True
+                    and timestamp >= job.last_timestamp):
+                job.state = 'complete'
+                job.background = False
+                job.unknown_since = None
+                job.awaiting_claude_background = False
+                job.completed_children.update(job.children)
+                job.completed_children.update(job.unknown_children)
+                job.children.clear()
+                job.unknown_children.clear()
+        elif kind == 'interrupted':
+            job.awaiting_claude_background = False
+            job.state = 'interrupted'
+            job.children.clear()
+            job.unknown_children.clear()
+            job.background = False
+            job.unknown_since = None
+            self.baseline = None
         elif kind == 'unknown':
+            job.awaiting_claude_background = False
             job.state = 'unknown'
             if job.unknown_since is None:
                 job.unknown_since = now
             self.baseline = None
         else:
+            job.awaiting_claude_background = False
             job.state = 'waiting' if kind == 'waiting' else 'complete'
             job.unknown_since = None
+        if kind == 'complete' and event.get('source') == 'user-confirmed':
+            job.children.clear()
+            job.unknown_children.clear()
+            job.background = False
+            job.completion_source = 'user'
+            self.baseline = None
         if kind == 'complete' and event.get('metadata_complete') is True and event.get('background_active') is False:
             job.completed_children.update(job.unknown_children)
             job.unknown_children.clear()
@@ -141,7 +175,8 @@ class Engine:
         waiting = sum(j.state == 'waiting' and not j.active for j in self.jobs.values())
         lost = [j for j in self.jobs.values() if j.state == 'unknown']
         lost_since = [j.unknown_since for j in lost] + [t for j in self.jobs.values() for t in j.unknown_children.values()]
-        counts = dict(running=running, waiting=waiting, unknown=len(lost_since))
+        interrupted = sum(j.state == 'interrupted' for j in self.jobs.values())
+        counts = dict(running=running, waiting=waiting, unknown=len(lost_since), interrupted=interrupted)
         if not self.enabled:
             self.baseline = None
             return Decision('paused', False, **counts)
@@ -152,6 +187,9 @@ class Engine:
             self.baseline = None
             protected = any(now - t < self.recovery for t in lost_since)
             return Decision('unknown' if protected else 'fault', protected, **counts)
+        if interrupted:
+            self.baseline = None
+            return Decision('interrupted', False, **counts)
         if self.action == "shutdown" and waiting:
             self.baseline = None
             return Decision("waiting", False, **counts)
