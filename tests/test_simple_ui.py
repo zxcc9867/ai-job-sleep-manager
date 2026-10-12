@@ -117,3 +117,19 @@ class SimpleDashboardTests(unittest.TestCase):
                 self.assertEqual(c.power.requests, 0)
             finally:
                 w.close()
+
+    def test_policy_summary_distinguishes_sleep_input_waits_from_shutdown_completion(self):
+        with tempfile.TemporaryDirectory() as folder:
+            c, w = self.make_window(folder)
+            try:
+                c.set_power_settings(300, 'sleep')
+                w.update_settings_feedback()
+                self.assertIn('입력 대기', w.applied_summary.cget('text'))
+                c.set_power_settings(300, 'shutdown')
+                w.update_settings_feedback()
+                self.assertIn('모든 작업 완료', w.applied_summary.cget('text'))
+                self.assertNotIn('입력 대기', w.applied_summary.cget('text'))
+                self.assertFalse(c.engine.enabled)
+                self.assertEqual(c.power.requests, 0)
+            finally:
+                w.close()

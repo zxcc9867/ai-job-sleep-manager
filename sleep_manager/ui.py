@@ -278,7 +278,7 @@ class Window:
 
         self.completion_controls=tk.Frame(overview,bg=self.palette.card)
         self.completion_controls.pack(fill='x',pady=(8,0))
-        self.label(self.completion_controls,'작업 완료 후',size=10,bold=True).pack(side='left')
+        self.label(self.completion_controls,'대기 시간',size=10,bold=True).pack(side='left')
         self.minutes=tk.StringVar(value=str(int(self.controller.engine.delay/60)))
         self.spin=ttk.Spinbox(self.completion_controls,from_=1,to=120,width=5,textvariable=self.minutes,font=self.font(),justify='center'); self.spin.pack(side='left',padx=10)
         self.label(self.completion_controls,'분 뒤',self.palette.muted).pack(side='left')
@@ -700,7 +700,8 @@ class Window:
         engine=self.controller.engine
         action='정상 종료' if engine.action=='shutdown' else '절전'
         applied=f'{int(engine.delay/60)}분 후 {action}'
-        self.applied_summary.config(text=f'모든 작업 완료  →  {int(engine.delay/60)}분 대기  →  {action}')
+        condition='모든 작업 완료' if engine.action=='shutdown' else '작업 완료·입력 대기'
+        self.applied_summary.config(text=f'{condition}  →  {int(engine.delay/60)}분 대기  →  {action}')
         self.pause.config(text='자동 관리 끄기' if engine.enabled else '자동 관리 켜기')
         self.mode_badge.config(text='미리보기 · 실제 절전·종료 안 함' if self.controller.power.dry_run else '실제 전원 제어',fg=self.palette.muted)
         self.status_label.config(text='자동 관리가 켜져 있어요' if engine.enabled else '자동 관리가 꺼져 있어요',
