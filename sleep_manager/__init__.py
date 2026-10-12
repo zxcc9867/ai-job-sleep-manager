@@ -1,2 +1,2 @@
 """Job-aware Windows sleep management."""
-__version__ = '0.3.2-theme.20261004'
+__version__ = '0.4.0-simple.20261012'

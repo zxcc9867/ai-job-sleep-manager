@@ -21,8 +21,9 @@ class DashboardUITests(unittest.TestCase):
             try:
                 w.refresh()
                 self.assertIn('종료 권한',w.description.cget('text'))
-                self.assertIn('자동 관리 중지',w.applied_summary.cget('text'))
-                self.assertIn('종료 권한',w.execution_status.cget('text'))
+                self.assertIn('꺼져',w.status_label.cget('text'))
+                self.assertIn('5분',w.applied_summary.cget('text'))
+                self.assertIn('켜기',w.execution_status.cget('text'))
                 self.assertEqual(w.pause.cget('text'),'자동 관리 켜기')
             finally: w.close()
 

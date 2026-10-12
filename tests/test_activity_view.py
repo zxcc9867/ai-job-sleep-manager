@@ -120,7 +120,9 @@ class ActivityUITests(unittest.TestCase):
                 self.assertIn('최근 지시: 진행해줘',details)
                 self.assertIn('현재 활동: 자료 조회 도구 실행 중',details)
                 self.assertIn('AI의 최근 설명:',details)
-                self.assertIn('대화 제목: 예전 주식 투자 일지 요청',details)
+                self.assertNotIn('대화 제목:',details)
+                w.show_records.set(True); w.show_job_details()
+                self.assertIn('대화 제목: 예전 주식 투자 일지 요청',w.details.get('1.0','end'))
             finally: w.close()
 
 

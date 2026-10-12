@@ -67,9 +67,14 @@ def capture(scenario, output, theme='light'):
         store=Store(Path(folder))
         store.save_theme(theme)
         power=PreviewPower()
-        if scenario=='recovery':
+        if scenario in ('recovery','paused','failure'):
             store.save_execution_dry_run(False)
             power.dry_run=False  # PreviewPower is a fake; no native power calls.
+        if scenario=='failure':
+            from sleep_manager.power_state import PowerActionState
+            store.save_settings(dict(enabled=False,action='shutdown',delay=300))
+            store.save_power_action(PowerActionState('failed','legacy_shutdown_failure',
+                'Previous failure in an older version').payload())
         controller = Controller(store, power, PreviewReader())
         sessions = [('codex', 'demo-codex-refactoring'), ('claude', 'demo-claude-tests'), ('codex', 'demo-codex-review')]
         for provider, session in sessions:
@@ -107,6 +112,7 @@ def capture(scenario, output, theme='light'):
         transcript.write_text(''.join(json.dumps(m,ensure_ascii=False)+'\n' for m in messages),encoding='utf-8')
         window.claude_details=ClaudeDetails(Path(folder)/'projects')
         window.root.geometry('+30+20')
+        if scenario in ('shutdown','recovery'): window.toggle_list_options()
         if scenario=='shutdown': window.show_complete.set(True)
         if scenario=='recovery': window.show_history.set(True)
         if scenario in ('settings','large_text','settings_unsaved','detection','appearance'): window.toggle_settings()
@@ -173,7 +179,7 @@ def capture(scenario, output, theme='light'):
 if __name__ == '__main__':
     destination = Path(__file__).resolve().parents[1] / 'docs' / 'images'
     destination.mkdir(parents=True, exist_ok=True)
-    for scenario in ('running', 'countdown', 'paused', 'unknown', 'shutdown', 'activity', 'settings', 'claude','recovery','detection','diagnostics'):
+    for scenario in ('running', 'countdown', 'paused', 'failure', 'unknown', 'shutdown', 'activity', 'settings', 'claude','recovery','detection','diagnostics'):
         capture(scenario, destination / (scenario + '.png'))
     for scenario,filename in [('running','dark'),('appearance','dark-settings'),('diagnostics','dark-diagnostics')]:
         capture(scenario,destination/(filename+'.png'),theme='dark')

@@ -245,43 +245,61 @@ class Window:
         brand=tk.Frame(self.header_brand,bg=self.palette.bg); brand.pack(side='left')
         self.label(brand,'AI 작업 전원 관리',size=20,bold=True,anchor='w').pack(fill='x')
         self.label(brand,'작업 중에는 깨워 두고, 끝나면 쉬게 합니다',self.palette.muted,8,anchor='w').pack(fill='x')
-        self.pause=self.button(self.header_controls,'자동 관리 끄기',self.toggle,True,
-            help_text='켜면 AI 작업 중 절전을 막고, 완료 후 설정한 절전·종료를 실행합니다. 끄면 Windows의 기존 전원 설정을 따릅니다.'); self.pause.pack(side='right')
-        self.settings_button=self.button(self.header_controls,'설정 열기  ▾',self.toggle_settings,
+        self.settings_button=self.button(self.header_controls,'추가 설정  ▾',self.toggle_settings,
             help_text='전원 동작, Codex·Claude 작업 감지, 화면·로그인 시작 설정을 확인합니다.'); self.settings_button.pack(side='right',padx=8)
-        badge='● 관찰 모드' if self.controller.power.dry_run else '● 자동 관리'
-        self.mode_badge=self.label(self.header_controls,badge,self.palette.amber if self.controller.power.dry_run else self.palette.accent,9,padx=12); self.mode_badge.pack(side='right')
 
-        overview=tk.Frame(shell,bg=self.palette.card,highlightbackground=self.palette.border,highlightthickness=1,padx=18,pady=14)
+        overview=tk.Frame(shell,bg=self.palette.card,highlightbackground=self.palette.border,highlightthickness=1,padx=20,pady=18)
+        self.overview=overview
         overview.pack(fill='x',pady=(0,16))
-        line=tk.Frame(overview,bg=self.palette.card); line.pack(fill='x')
-        self.status_label=self.label(line,'작업 상태를 불러오는 중',self.palette.accent,13,True,anchor='w'); self.status_label.pack(side='left')
+        line=tk.Frame(overview,bg=self.palette.card); self.overview_line=line; line.pack(fill='x')
+        line.columnconfigure(0,weight=1)
+        status_copy=tk.Frame(line,bg=self.palette.card); status_copy.grid(row=0,column=0,sticky='w')
+        self.status_label=self.label(status_copy,'작업 상태를 불러오는 중',self.palette.accent,13,True,anchor='w'); self.status_label.pack(anchor='w')
+        self.mode_badge=self.label(status_copy,'',self.palette.muted,9); self.mode_badge.pack(anchor='w',pady=(4,0))
+        self.overview_actions=tk.Frame(line,bg=self.palette.card); self.overview_actions.grid(row=0,column=1,sticky='e')
+        self.pause=self.button(self.overview_actions,'자동 관리 켜기',self.toggle,True,
+            help_text='켜면 작업 중 절전을 막고 완료 후 설정한 동작을 준비합니다. 끄면 절전 방지와 자동 절전·종료를 멈춥니다.')
+        self.pause.pack(anchor='e')
+        self.issue_button=self.button(self.overview_actions,'중지 이유 자세히 보기',self.diagnose,
+            help_text='설정과 권한, 마지막 오류를 읽기 전용 창에서 확인합니다.')
         self.description=self.label(overview,'',self.palette.muted,9,anchor='w',wraplength=960,justify='left'); self.description.pack(fill='x',pady=(4,12))
         self.applied_summary=self.label(overview,'',self.palette.text,10,True,anchor='w',justify='left',wraplength=1100)
         self.applied_summary.pack(fill='x',pady=(0,6))
-        self.execution_status=self.label(overview,'',self.palette.amber,10,True,anchor='w',justify='left',wraplength=1100)
-        self.execution_status.pack(fill='x',pady=(0,12))
+        self.execution_status=self.label(overview,'',self.palette.muted,9,anchor='w',justify='left',wraplength=1100)
+        self.execution_status.pack(fill='x',pady=(0,14))
         self.management_help=self.label(overview,'',self.palette.muted,9,anchor='w',justify='left',wraplength=1100)
-        metrics=tk.Frame(overview,bg=self.palette.card); metrics.pack(fill='x')
+        metrics=tk.Frame(overview,bg=self.palette.card); self.metrics=metrics
         self.metric_values=[]; self.metric_titles=[]
-        for index,(title,hint,color) in enumerate((('진행 중인 작업','메인 작업',self.palette.text),('진행 중인 하위 작업','AI가 나눠 맡긴 작업',self.palette.text),('절전까지 남은 시간','작업 종료 후 대기',self.palette.accent))):
-            metrics.columnconfigure(index,weight=1,uniform='metric')
-            frame=tk.Frame(metrics,bg=self.palette.card); frame.grid(row=0,column=index,sticky='ew',padx=(0,18))
-            heading=self.label(frame,title,self.palette.muted,9,anchor='w'); heading.pack(fill='x'); self.metric_titles.append(heading)
-            values=tk.Frame(frame,bg=self.palette.card); values.pack(fill='x')
-            value=self.label(values,'—',color,25,True,anchor='w'); value.pack(side='left'); self.metric_values.append(value)
-            self.label(values,hint,self.palette.muted,8).pack(side='left',padx=(10,0),pady=(12,0))
+        for index,(title,color) in enumerate((('작업',self.palette.text),('하위 작업',self.palette.text),('절전까지',self.palette.accent))):
+            frame=tk.Frame(metrics,bg=self.palette.card)
+            if index==2: frame.pack(side='left',padx=(0,24))
+            heading=self.label(frame,title,self.palette.muted,9); heading.pack(side='left'); self.metric_titles.append(heading)
+            value=self.label(frame,'—',color,11,True); value.pack(side='left',padx=(8,0)); self.metric_values.append(value)
+
+        self.completion_controls=tk.Frame(overview,bg=self.palette.card)
+        self.completion_controls.pack(fill='x',pady=(8,0))
+        self.label(self.completion_controls,'작업 완료 후',size=10,bold=True).pack(side='left')
+        self.minutes=tk.StringVar(value=str(int(self.controller.engine.delay/60)))
+        self.spin=ttk.Spinbox(self.completion_controls,from_=1,to=120,width=5,textvariable=self.minutes,font=self.font(),justify='center'); self.spin.pack(side='left',padx=10)
+        self.label(self.completion_controls,'분 뒤',self.palette.muted).pack(side='left')
+        self.action=tk.StringVar(value='정상 종료' if self.controller.engine.action=='shutdown' else '절전')
+        self.action_select=ttk.Combobox(self.completion_controls,textvariable=self.action,values=list(ACTIONS),state='readonly',width=10,font=self.font()); self.action_select.pack(side='left',padx=10)
+        self.save_button=self.button(self.completion_controls,'저장',self.apply_delay); self.save_button.pack(side='left')
+        self.save_feedback=self.label(overview,'',self.palette.success,9,False,anchor='w',justify='left',wraplength=1100)
+        self.save_feedback.pack(fill='x',pady=(8,0))
+        self.minutes.trace_add('write',self.settings_edited)
+        self.action.trace_add('write',self.settings_edited)
 
         self.settings_open=False
         self.settings_panel=tk.Frame(shell,bg=self.palette.card,padx=20,pady=18,highlightbackground=self.palette.border,highlightthickness=1)
-        self.label(self.settings_panel,'앱 설정',size=13,bold=True,anchor='w').pack(fill='x',pady=(0,10))
+        self.label(self.settings_panel,'추가 설정',size=13,bold=True,anchor='w').pack(fill='x',pady=(0,10))
         self.settings_tabs=ttk.Notebook(self.settings_panel);self.settings_tabs.pack(fill='x')
         power_tab=tk.Frame(self.settings_tabs,bg=self.palette.card,padx=4,pady=8)
         detect_tab=tk.Frame(self.settings_tabs,bg=self.palette.card,padx=4,pady=8)
         display_tab=tk.Frame(self.settings_tabs,bg=self.palette.card,padx=4,pady=8)
-        self.settings_tabs.add(power_tab,text='전원 동작')
-        self.settings_tabs.add(detect_tab,text='Codex·Claude 감지')
-        self.settings_tabs.add(display_tab,text='화면·시작 설정')
+        self.settings_tabs.add(power_tab,text='실행 모드')
+        self.settings_tabs.add(detect_tab,text='AI 감지')
+        self.settings_tabs.add(display_tab,text='화면·시작')
         self.label(power_tab,'컴퓨터의 전원을 실제로 바꿀까요?',size=11,bold=True,anchor='w').pack(fill='x',pady=(0,10))
         mode_controls=tk.Frame(power_tab,bg=self.palette.card); mode_controls.pack(fill='x',pady=(0,8))
         self.label(mode_controls,'전원 제어 모드',bold=True).pack(side='left',padx=(0,12))
@@ -295,19 +313,6 @@ class Window:
         self.execution_mode.trace_add('write',lambda *args:self.update_mode_feedback())
         self.label(power_tab,'관찰 모드: 상태와 예정된 동작만 확인합니다.\n실제 전원 제어: 작업 중 절전을 막고, 완료 후 아래 동작을 실행합니다.',self.palette.muted,9,
                    anchor='w',justify='left',wraplength=1000).pack(fill='x',pady=(0,20))
-        self.label(power_tab,'모든 AI 작업이 끝나면',size=11,bold=True,anchor='w').pack(fill='x',pady=(0,10))
-        settings=tk.Frame(power_tab,bg=self.palette.card); settings.pack(fill='x')
-        self.label(settings,'작업이 끝나면',size=10,bold=True).pack(side='left')
-        self.minutes=tk.StringVar(value=str(int(self.controller.engine.delay/60)))
-        self.spin=ttk.Spinbox(settings,from_=1,to=120,width=5,textvariable=self.minutes,font=self.font(11),justify='center'); self.spin.pack(side='left',padx=10)
-        self.label(settings,'분 후',self.palette.muted).pack(side='left')
-        self.action=tk.StringVar(value='정상 종료' if self.controller.engine.action=='shutdown' else '절전')
-        self.action_select=ttk.Combobox(settings,textvariable=self.action,values=list(ACTIONS),state='readonly',width=10,font=self.font(10)); self.action_select.pack(side='left',padx=10)
-        self.save_button=self.button(settings,'설정 저장',self.apply_delay,True); self.save_button.pack(side='left')
-        self.save_feedback=self.label(power_tab,'',self.palette.success,9,False,anchor='w',justify='left',wraplength=1100)
-        self.save_feedback.pack(fill='x',pady=(8,0))
-        self.minutes.trace_add('write',self.settings_edited)
-        self.action.trace_add('write',self.settings_edited)
 
         self.label(detect_tab,'Codex·Claude의 작업 알림을 받습니다',size=11,bold=True,anchor='w').pack(fill='x')
         self.label(detect_tab,'AI 도구의 설정에 작업 시작·종료 알림을 추가합니다. 처음 설정하거나 앱 위치를 바꿨을 때 사용하세요.\n설정 후 AI 앱·터미널 세션을 새로 시작하면 알림을 받을 수 있습니다.',self.palette.muted,9,
@@ -358,16 +363,20 @@ class Window:
         table_header=tk.Frame(self.workspace,bg=self.palette.bg); table_header.pack(fill='x')
         self.jobs_heading=self.label(table_header,'남은 작업',size=11,bold=True); self.jobs_heading.pack(side='left')
         self.show_complete=tk.BooleanVar(value=False)
-        tk.Checkbutton(table_header,text='완료한 작업도 보기',variable=self.show_complete,command=self.render_jobs,bg=self.palette.bg,fg=self.palette.muted,selectcolor=self.palette.card,activebackground=self.palette.bg,activeforeground=self.palette.text,font=self.font(9)).pack(side='right')
+        self.list_options_open=False
+        self.list_options_button=self.button(table_header,'목록 옵션  ▾',self.toggle_list_options,
+            help_text='완료한 작업과 이전 실행 기록을 표시하는 옵션을 엽니다.')
+        self.list_options_button.pack(side='right')
         self.jobs_summary=self.label(self.workspace,'',self.palette.muted,9,anchor='w'); self.jobs_summary.pack(fill='x',pady=(5,12))
         self.show_history=tk.BooleanVar(value=False)
-        history_bar=tk.Frame(self.workspace,bg=self.palette.bg);history_bar.pack(fill='x',pady=(0,10))
-        self.history_notice=self.label(self.workspace,'',self.palette.amber,9,anchor='w',justify='left',wraplength=1000);self.history_notice.pack(fill='x',pady=(0,10))
-        self.history_toggle=tk.Checkbutton(history_bar,text='이전 실행에서 완료를 확인하지 못한 작업 보기',variable=self.show_history,command=self.render_jobs,bg=self.palette.bg,fg=self.palette.muted,selectcolor=self.palette.card,activebackground=self.palette.bg,activeforeground=self.palette.text,font=self.font(9),wraplength=440,justify='left')
+        history_bar=tk.Frame(self.workspace,bg=self.palette.bg);self.history_bar=history_bar
+        tk.Checkbutton(history_bar,text='완료한 작업 보기',variable=self.show_complete,command=self.render_jobs,bg=self.palette.bg,fg=self.palette.muted,selectcolor=self.palette.card,activebackground=self.palette.bg,activeforeground=self.palette.text,font=self.font(9)).pack(side='left',padx=(0,16))
+        self.history_notice=self.label(self.workspace,'',self.palette.amber,9,anchor='w',justify='left',wraplength=1000)
+        self.history_toggle=tk.Checkbutton(history_bar,text='이전 실행 기록 보기',variable=self.show_history,command=self.render_jobs,bg=self.palette.bg,fg=self.palette.muted,selectcolor=self.palette.card,activebackground=self.palette.bg,activeforeground=self.palette.text,font=self.font(9),wraplength=440,justify='left')
         self.history_toggle.pack(side='left')
-        self.refresh_button=self.button(history_bar,'작업 상태 새로고침',self.recheck_connections,
+        self.refresh_button=self.button(table_header,'작업 새로고침',self.recheck_connections,
             help_text='Codex·Claude의 최신 작업 기록을 다시 읽습니다. 종료 확인이 없는 작업을 완료로 바꾸지 않습니다.')
-        self.refresh_button.pack(side='right')
+        self.refresh_button.pack(side='right',padx=(0,8))
         panels=tk.Frame(self.workspace,bg=self.palette.bg); self.panels=panels; panels.pack(fill='both',expand=True)
         panels.columnconfigure(0,weight=55,uniform='panels'); panels.columnconfigure(1,weight=45,uniform='panels')
         panels.rowconfigure(0,weight=1)
@@ -395,7 +404,7 @@ class Window:
         self.detail_panel=right
         right.grid(row=0,column=1,sticky='nsew')
         detail_header=tk.Frame(right,bg=self.palette.card,padx=14,pady=10); detail_header.pack(fill='x')
-        self.label(detail_header,'지금 무슨 일을 하나요?',size=11,bold=True).pack(side='left')
+        self.label(detail_header,'선택한 작업',size=11,bold=True).pack(side='left')
         self.detail_badge=self.label(detail_header,'선택 없음',self.palette.muted,9); self.detail_badge.pack(side='right')
         self.details=tk.Text(right,width=1,height=12,bg=self.palette.card,fg=self.palette.text,relief='flat',wrap='word',font=self.font(11),padx=20,pady=16,state='disabled',spacing1=3,spacing2=3,spacing3=5,insertbackground=self.palette.accent,selectbackground=self.palette.selected,selectforeground=self.palette.text)
         detail_scroll=ttk.Scrollbar(right,orient='vertical',command=self.details.yview)
@@ -404,8 +413,13 @@ class Window:
         for tag,color,size,bold in [('heading',self.palette.accent,10,True),('request',self.palette.text,12,True),('muted',self.palette.muted,9,False)]:
             self.details.tag_configure(tag,foreground=color,font=self.font(size,bold))
         detail_footer=tk.Frame(self.workspace,bg=self.palette.bg); detail_footer.pack(fill='x',pady=(10,0))
-        self.notice=self.label(detail_footer,'설정 → Codex·Claude 감지에서 작업 알림 설정과 상태·오류를 확인할 수 있습니다.',self.palette.muted,8,anchor='w',wraplength=760,justify='left'); self.notice.pack(side='left',fill='x',expand=True)
+        self.notice=self.label(detail_footer,'작업이 표시되지 않나요? 추가 설정 → AI 감지에서 알림을 설정하세요.',self.palette.muted,8,anchor='w',wraplength=760,justify='left'); self.notice.pack(side='left',fill='x',expand=True)
         self.button(detail_footer,'선택한 작업 이름 지정',self.rename_job).pack(side='right')
+        self.show_records=tk.BooleanVar(value=False)
+        self.records_toggle=tk.Checkbutton(right,text='세부 기록 보기',variable=self.show_records,command=self.show_job_details,
+            bg=self.palette.card,fg=self.palette.muted,selectcolor=self.palette.card,activebackground=self.palette.card,
+            activeforeground=self.palette.text,font=self.font(9))
+        self.records_toggle.pack(anchor='w',padx=16,pady=8,before=self.details)
         self.confirm_button=self.button(detail_header,'이 작업이 끝났음을 확인',self.confirm_selected_finished,
             help_text='원래 AI 창에서 작업이 끝난 것을 확인한 뒤 사용하세요. 선택한 미확인 작업에만 완료 기록을 남깁니다.')
         self.confirm_button.pack(side='right',padx=8)
@@ -419,6 +433,9 @@ class Window:
         compact=event.width < self.header_brand.winfo_reqwidth()+self.header_controls.winfo_reqwidth()+70
         self.header_controls.grid_configure(row=1 if compact else 0,column=0 if compact else 1,
             columnspan=2 if compact else 1,sticky='w' if compact else 'e',pady=(14,0) if compact else 0)
+        overview_compact=event.width < self.status_label.winfo_reqwidth()+self.overview_actions.winfo_reqwidth()+90
+        self.overview_actions.grid_configure(row=1 if overview_compact else 0,column=0 if overview_compact else 1,
+            sticky='w' if overview_compact else 'e',pady=(12,0) if overview_compact else 0)
         for name,padding in (('description',100),('management_help',100),('policy_note',100),('notice',350),('jobs_summary',70),('jobs_heading',290),('applied_summary',100),('execution_status',100),('save_feedback',100),('mode_feedback',100),('detection_feedback',100),('history_notice',100)):
             if hasattr(self,name): getattr(self,name).config(wraplength=max(300,event.width-padding))
 
@@ -427,7 +444,15 @@ class Window:
         if self.settings_open:
             self.settings_panel.pack(fill='x',before=self.workspace,pady=(0,16))
         else: self.settings_panel.pack_forget()
-        self.settings_button.config(text='설정 닫기  ▴' if self.settings_open else '설정 열기  ▾')
+        self.settings_button.config(text='추가 설정 닫기  ▴' if self.settings_open else '추가 설정  ▾')
+
+    def toggle_list_options(self):
+        self.list_options_open=not self.list_options_open
+        if self.list_options_open:
+            self.history_bar.pack(fill='x',before=self.panels,pady=(0,10))
+        else:
+            self.history_bar.pack_forget()
+        self.list_options_button.config(text='목록 옵션 닫기  ▴' if self.list_options_open else '목록 옵션  ▾')
 
     def scroll_page(self,event):
         if isinstance(event.widget,(ttk.Treeview,tk.Text,ttk.Spinbox,ttk.Combobox)): return
@@ -443,7 +468,7 @@ class Window:
                 status=self.controller.tick()
             title,description=MODES[status.mode]
             shutdown=self.controller.engine.action=='shutdown'
-            self.metric_titles[2].config(text='종료 요청까지 남은 시간' if shutdown else '절전까지 남은 시간')
+            self.metric_titles[2].config(text='종료 요청까지' if shutdown else '절전까지')
             self.policy_note.config(text=('정상 종료: 입력·승인 대기도 끝나야 합니다. 저장 확인 앱은 강제로 닫지 않으며, 종료 요청 후 자동 관리는 중지됩니다.' if shutdown else '절전: 모든 작업이 완료되거나 입력 대기일 때 시간을 셉니다. 새 작업이 시작되면 예약을 취소합니다.'))
             if shutdown and status.mode=='countdown':
                 title='정상 종료를 준비하고 있어요'
@@ -465,14 +490,17 @@ class Window:
             elif shutdown and self.shutdown_permission['available'] is False and not self.controller.power.dry_run:
                 description+='  종료 권한 검사에 실패했습니다. 상태·오류 확인에서 권한 상태를 확인해 주세요.'
             if self.controller.power.dry_run:
-                description+=' 관찰 모드에서 확인한 상태입니다.'
-                self.metric_titles[2].config(text='모의 종료 대기 시간' if shutdown else '모의 절전 대기 시간')
+                if status.mode in ('idle','running','countdown'):
+                    description='미리보기로 작업 상태를 확인합니다. 실제 절전 방지·절전·종료는 하지 않습니다.'
+                self.metric_titles[2].config(text='미리보기 대기')
             status_color=self.palette.amber if status.mode in ('waiting','paused','interrupted','unknown') else self.palette.error if status.mode=='fault' or self.controller.error else self.palette.accent
             self.status_label.config(text=title,fg=status_color)
             if not self.controller.power.dry_run:
                 self.mode_badge.config(text='● 자동 관리' if self.controller.engine.enabled else '○ 관리 중지',fg=self.palette.accent if self.controller.engine.enabled else self.palette.amber)
             self.description.config(text=description)
             self.metric_values[2].config(text='—' if status.remaining is None else f'{status.remaining//60:02d}:{status.remaining%60:02d}')
+            if status.remaining is not None: self.metrics.pack(fill='x',before=self.completion_controls,pady=(0,6))
+            else: self.metrics.pack_forget()
             self.pause.config(text='자동 관리 끄기' if self.controller.engine.enabled else '자동 관리 켜기')
             self.render_jobs()
             self.update_settings_feedback()
@@ -506,6 +534,8 @@ class Window:
         unknown_history=len(historical)-interrupted_history
         self.history_notice.config(text=(f'이전 작업 {len(historical)}개의 완료 확인이 필요합니다 · 재부팅 전 {interrupted_history}개 · 과거 미확인 {unknown_history}개. 현재 실행 중이라는 뜻은 아닙니다. 원래 AI 창에서 결과를 확인할 때까지 전원 전환을 보류합니다.'
                                         if historical else '이전 실행에서 완료를 확인하지 못한 작업이 없습니다. 새로고침은 최신 작업 기록을 다시 읽습니다.'),fg=self.palette.amber if historical else self.palette.muted)
+        if historical: self.history_notice.pack(fill='x',before=self.panels,pady=(0,10))
+        else: self.history_notice.pack_forget()
         for row in historical:
             if row['own_category']=='interrupted':
                 row['state']='이전 작업 · 완료 미확인';row['current_activity']='재부팅 전 작업 확인 대기'
@@ -515,7 +545,13 @@ class Window:
         self.metric_values[0].config(text=str(counts['running']))
         self.metric_values[1].config(text=str(counts['child_running']))
         self.jobs_heading.config(text=f"진행 중인 작업 {counts['running']}개 · 하위 작업 {counts['child_running']}개")
-        self.jobs_summary.config(text=f"응답 필요: 작업 {counts['waiting']} · 하위 {counts['child_waiting']}   |   확인 필요: 작업 {counts['unknown']} · 하위 {counts['child_unknown']}   |   중단: 작업 {counts['interrupted']} · 하위 {counts['child_interrupted']}   |   완료: 작업 {counts['complete']} · 하위 {counts['child_complete']}")
+        summaries=[]
+        for state,label in (('waiting','답변·승인 대기'),('unknown','완료 확인 필요'),('interrupted','이전 작업 확인'),('complete','완료')):
+            total=counts[state]+counts['child_'+state]
+            if total: summaries.append(f'{label} {total}개')
+        self.jobs_summary.config(text='  ·  '.join(summaries))
+        if summaries: self.jobs_summary.pack(fill='x',before=self.panels,pady=(0,10))
+        else: self.jobs_summary.pack_forget()
         previous_keys=set(self.job_rows)
         self.job_rows={row['key']:row for row in rows}
         visible=[row for row in rows if (self.show_history.get() if row['historical'] else row['pending'] or self.show_complete.get())]
@@ -543,8 +579,9 @@ class Window:
         if visible and not self.table.selection(): self.table.selection_set(visible[0]['key'])
         if not visible:
             self.confirm_button.config(state='disabled')
+            self.confirm_button.pack_forget()
             self.detail_badge.config(text='선택 없음',fg=self.palette.muted)
-            self.set_detail('현재 목록에 표시할 작업이 없습니다. 위의 완료 작업·이전 작업 보기로 기록을 확인할 수 있습니다.' if rows else 'AI 작업이 감지되면 최근 지시와 진행 설명을 보여 드립니다.\n\n처음 사용한다면 설정 → Codex·Claude 감지 → 감지 설정을 누르고, AI 앱·터미널에서 새 작업을 시작하세요.')
+            self.set_detail('현재 표시할 작업이 없습니다. 목록 옵션에서 완료·이전 작업을 볼 수 있습니다.' if rows else '새 AI 작업을 기다리고 있습니다.\n\n작업이 표시되지 않으면 추가 설정 → AI 감지에서 알림을 설정하고, AI 앱·터미널에서 새 작업을 시작하세요.')
         else:
             self.show_job_details()
 
@@ -566,31 +603,36 @@ class Window:
         job=self.controller.engine.jobs.get(row['key'])
         confirmable=bool(job and job.state in ('unknown','interrupted') and not job.active)
         self.confirm_button.config(state='normal' if confirmable else 'disabled')
+        if confirmable: self.confirm_button.pack(side='right',padx=8)
+        else: self.confirm_button.pack_forget()
         if row['is_child'] and row['parent_request']:
             lines=['상위 사용자 지시: '+row['parent_request']]
             if row['latest_request']=='최신 지시 미제공':
                 lines.append('하위 지시 본문은 기록에 제공되지 않았습니다. 아래는 이 에이전트의 공개 설명입니다.')
             else: lines.append('최근 지시: '+row['latest_request'])
         else: lines=[('과거 기록의 마지막 지시: ' if row.get('historical') else '최근 지시: ')+row['latest_request']]
-        lines.extend(['',row.get('connection',''),'마지막 상태 이벤트: '+row.get('last_event','시각 미제공')])
+        if self.show_records.get():
+            lines.extend(['',row.get('connection',''),'마지막 상태 이벤트: '+row.get('last_event','시각 미제공')])
         if row.get('historical'):
             lines.extend(['과거 기록입니다. 현재 실행 중이라는 증거가 아닙니다.',
                           '재부팅 전 종료 기록이 없습니다. 원래 AI 창에서 결과를 확인해 주세요.' if row['own_category']=='interrupted' else '전체 작업 종료는 확인되지 않아 자동 전원 전환을 보류합니다.'])
         if row['commentary']:
             lines.extend(['', 'AI의 최근 설명:',row['commentary']])
-            if row['commentary_at']: lines.append('설명 기록 시각: '+row['commentary_at'])
+            if row['commentary_at'] and self.show_records.get(): lines.append('설명 기록 시각: '+row['commentary_at'])
         else:
             current=next((p['step'] for p in row['plan'] if p['status']=='in_progress'),'')
             lines.extend(['', 'AI의 최근 설명:',
                 '공유된 계획의 현재 단계: '+current if current else '이 지시에 대한 공개 진행 설명이 아직 없습니다.'])
-        lines.extend(['', '현재 활동: '+row['current_activity'],'관측 시점: '+row['activity_updated']])
+        lines.extend(['', '현재 활동: '+row['current_activity']])
+        if self.show_records.get(): lines.append('관측 시점: '+row['activity_updated'])
         if row['child_work']:
             lines.extend(['', '남은 하위 작업 · 수행 내용:'])
             for child in row['child_work']:
                 lines.extend(['  · '+child['title']+' — '+child['state'], '    '+child['description']])
-                if child['commentary_at']: lines.append('    설명 기록 시각: '+child['commentary_at'])
-                else: lines.append('    '+child['updated'])
-        lines.extend(['', '대화 제목: '+row['title'],row['tool']+'  ·  '+row['project']+'  ·  '+row['state']])
+                if self.show_records.get():
+                    lines.append('    설명 기록 시각: '+child['commentary_at'] if child['commentary_at'] else '    '+child['updated'])
+        if self.show_records.get():
+            lines.extend(['', '대화 제목: '+row['title'],row['tool']+'  ·  '+row['project']+'  ·  '+row['state']])
         if row['relation']: lines.append(row['relation'])
         if row['child_count']: lines.append(f"이 작업에 연결된 하위 작업 {row['child_count']}개 · 목록에서 각 상태를 확인하세요.")
         lines.append(row['reason'])
@@ -601,10 +643,10 @@ class Window:
                 lines.append('['+marker+'] '+step['step'])
         elif row['category']=='running':
             lines.append('공유된 계획이 생기면 예정·완료 단계도 함께 표시합니다.')
-        if row['activity_history']:
+        if row['activity_history'] and self.show_records.get():
             lines.extend(['', '최근 실행 흐름 (관측된 도구 요청·응답):'])
             for item in row['activity_history'][-4:]: lines.append('  · '+item['text'])
-        lines.append('세션 ID: '+row['session_id'])
+        if self.show_records.get(): lines.append('세션 ID: '+row['session_id'])
         self.set_detail('\n'.join(lines))
 
     def confirm_selected_finished(self):
@@ -658,31 +700,48 @@ class Window:
         engine=self.controller.engine
         action='정상 종료' if engine.action=='shutdown' else '절전'
         applied=f'{int(engine.delay/60)}분 후 {action}'
-        mode='관찰 모드' if self.controller.power.dry_run else '실제 전원 제어'
-        management='자동 관리 켜짐' if engine.enabled else '자동 관리 중지'
-        self.applied_summary.config(text=f'현재 적용값: {applied} · {mode} · {management}')
+        self.applied_summary.config(text=f'모든 작업 완료  →  {int(engine.delay/60)}분 대기  →  {action}')
+        self.pause.config(text='자동 관리 끄기' if engine.enabled else '자동 관리 켜기')
+        self.mode_badge.config(text='미리보기 · 실제 절전·종료 안 함' if self.controller.power.dry_run else '실제 전원 제어',fg=self.palette.muted)
+        self.status_label.config(text='자동 관리가 켜져 있어요' if engine.enabled else '자동 관리가 꺼져 있어요',
+            fg=self.palette.accent if engine.enabled else self.palette.amber)
+        if not engine.enabled:
+            state=self.controller.power_action
+            if state.reason=='legacy_shutdown_failure':
+                description='이전 종료 실패 기록으로 자동 관리가 꺼져 있습니다. 자동 관리 켜기를 눌러 다시 시작하세요.'
+            else:
+                description=action_message(state,self.controller.clock()) or '절전 방지와 자동 전원 동작을 하지 않습니다. 자동 관리 켜기를 눌러 시작하세요.'
+            self.description.config(text=description)
+        if self.controller.error:
+            self.issue_button.pack(anchor='e',pady=(6,0))
+        else:
+            self.issue_button.pack_forget()
         try: dirty=int(self.minutes.get())*60!=engine.delay or ACTIONS.get(self.action.get())!=engine.action
         except ValueError: dirty=True
         if self.save_failed:
             feedback=self.save_message; color=self.palette.error
         elif dirty:
-            feedback='● 미저장 변경 사항이 있습니다. 저장 전까지 '+applied+' 설정을 사용합니다.'; color=self.palette.amber
+            feedback='미저장 · 현재는 '+applied+' 설정입니다.'; color=self.palette.amber
         else:
-            feedback=self.save_message or '저장된 설정을 사용 중입니다. 값을 바꾸면 변경 내용을 저장할 수 있습니다.'; color=self.palette.success
+            feedback=self.save_message or '저장됨 · 다음 실행에도 유지됩니다.'; color=self.palette.success
+            if not engine.enabled: feedback+=' 자동 관리는 꺼져 있습니다.'
         self.save_feedback.config(text=feedback,fg=color)
-        self.save_button.config(text='변경 내용 저장' if dirty or self.save_failed else '설정 저장됨',state='normal' if dirty or self.save_failed else 'disabled',
+        if dirty or self.save_message or not engine.enabled:
+            self.save_feedback.pack(fill='x',pady=(8,0))
+        else: self.save_feedback.pack_forget()
+        self.save_button.config(text='저장' if dirty or self.save_failed else '저장됨',state='normal' if dirty or self.save_failed else 'disabled',
             bg=self.palette.primary if dirty or self.save_failed else self.palette.inset,disabledforeground=self.palette.muted)
         jobs=list(engine.jobs.values())
         unknown=sum(j.state=='unknown' or bool(j.unknown_children) for j in jobs)
         interrupted=sum(j.state=='interrupted' for j in jobs)
         waiting=sum(j.state=='waiting' and not j.active for j in jobs)
         if self.controller.power.dry_run:
-            execution='실제 종료 안 함 · 관찰 모드: 설정을 저장해도 절전 방지·절전·종료는 실행하지 않습니다.'
-            if unknown: execution+=f' 상태 확인 필요 {unknown}개도 남아 있습니다.'
-            if interrupted: execution+=f' 재부팅 전 종료 미확인 작업 {interrupted}개를 확인해야 합니다.'
+            execution='동작을 미리 보여줍니다. 실제 전원은 바꾸지 않습니다.'
+            if unknown: execution+=f' 완료 확인 필요 {unknown}개.'
+            if interrupted: execution+=f' 재부팅 전 종료 미확인 {interrupted}개.'
             color=self.palette.amber
         elif not engine.enabled:
-            execution=action_message(self.controller.power_action,self.controller.clock()) or '자동 관리 일시 중지 · 설정은 보관되지만 현재 실행되지 않습니다.'; color=self.palette.amber
+            execution='자동 관리 켜기를 누르면 작업 감지와 전원 관리를 시작합니다.'; color=self.palette.amber
         elif self.controller.power_action.phase=='deferred':
             execution=action_message(self.controller.power_action,self.controller.clock()); color=self.palette.amber
         elif self.controller.error:
@@ -694,10 +753,13 @@ class Window:
         elif waiting and engine.action=='shutdown':
             execution=f'정상 종료 보류 · 사용자 답변·승인 대기 {waiting}개가 남아 있습니다.'; color=self.palette.amber
         elif not engine.seen_work:
-            execution='실제 자동 관리 켜짐 · 새 작업을 감지한 뒤 완료 조건을 확인합니다.'; color=self.palette.accent
+            execution='새 AI 작업을 기다립니다.'; color=self.palette.muted
         else:
-            execution=f'실제 자동 관리 켜짐 · 작업 상태와 사용자 입력을 확인한 뒤 {applied}를 요청합니다.'; color=self.palette.accent
+            execution=f'작업이 끝나고 사용자 입력이 없으면 {applied}를 요청합니다.'; color=self.palette.muted
         self.execution_status.config(text='다음 동작 · '+execution,fg=color)
+        if not engine.enabled or self.controller.error or unknown or interrupted or waiting or self.controller.power_action.phase=='deferred':
+            self.execution_status.pack(fill='x',before=self.completion_controls,pady=(0,10))
+        else: self.execution_status.pack_forget()
         self.management_help.config(text=('자동 관리가 켜져 있습니다. 끄기를 누르면 이 앱의 절전 방지와 자동 전원 동작을 중지합니다.'
             if engine.enabled else '자동 관리가 꺼져 있습니다. 켜기를 누르면 작업 상태를 다시 확인하고 설정한 동작을 준비합니다.')
             +(' 관찰 모드에서는 실제 전원을 바꾸지 않습니다.' if self.controller.power.dry_run else ''))
@@ -716,7 +778,7 @@ class Window:
         privilege='관리자 권한으로 실행 중입니다.' if self.admin else '실제 전원 제어를 선택하면 Windows 권한 승인을 요청합니다.'
         self.mode_feedback.config(text=(self.mode_message+'\n' if self.mode_message else '')+('현재 '+current+' 적용 중. ')+privilege+'\n'+next_start,
             fg=self.palette.amber if self.mode_message or pending or saved!=current else self.palette.muted)
-        self.mode_badge.config(text='● 관찰 모드' if dry else '● 실제 전원 제어' if self.controller.engine.enabled else '○ 실제 모드 · 일시 중지',fg=self.palette.amber if dry or not self.controller.engine.enabled else self.palette.accent)
+        self.mode_badge.config(text='미리보기 · 실제 절전·종료 안 함' if dry else '실제 전원 제어',fg=self.palette.muted)
 
     def apply_execution_mode(self):
         wanted=self.execution_mode.get()=='관찰 모드'
@@ -775,6 +837,9 @@ class Window:
             self.notice.config(text=('자동 관리가 켜졌습니다. 작업 상태를 확인한 뒤 설정한 동작을 준비합니다.'
                 if self.controller.engine.enabled else '자동 관리가 꺼졌습니다. 이제 Windows의 기존 전원 설정을 따릅니다.'),fg=self.palette.success)
             self.update_settings_feedback()
+            if self.controller.engine.enabled:
+                self.description.config(text=('미리보기를 시작했습니다. 실제 절전 방지·절전·종료는 하지 않습니다.'
+                    if self.controller.power.dry_run else '작업 감지를 시작했습니다. 작업 중 절전을 막고, 완료 후 설정한 동작을 준비합니다.'))
         except Exception as exc: messagebox.showerror('설정 오류',str(exc),parent=self.root)
 
     def connect(self):

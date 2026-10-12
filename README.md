@@ -10,6 +10,15 @@ For developers who leave Codex or Claude Code working while they step away. The 
 
 ![Dashboard showing main jobs, child jobs and power status](docs/images/running.png)
 
+### Simple daily controls
+
+- Set the delay and **Sleep / Normal shutdown** directly on the dashboard, then press **저장** (Save). Saving does not turn management on.
+- Press the main **자동 관리 켜기 / 끄기** (Turn management on / off) button. The same panel clearly shows whether management is enabled, the applied policy, and whether the app is previewing or controlling power.
+- Open **추가 설정** (Additional settings) for the execution mode, AI detection, theme and startup options. **목록 옵션** (List options) reveals completed and previous jobs; **세부 기록 보기** (Detailed records) reveals timestamps, connection evidence and session IDs.
+
+![Paused management with a clear start button and previous-failure explanation](docs/images/failure.png)
+
+
 *Screenshots show the real Korean UI with isolated demonstration data. They do not show private conversations or prove successful PC sleep/shutdown. README language selection does not change the app's UI language.*
 
 ## Contents
@@ -43,9 +52,9 @@ The dashboard separates main jobs from child jobs, with counts for running, awai
 
 ### Current connections and historical unconfirmed records
 
-Unfinished records restored when the app starts are separated from the current list when there is no current connection evidence. Use **과거 미확인·중단 기록 보기** (Show historical unconfirmed and interrupted records) to inspect them. The notice shows how many are hidden and explicitly states that they still block automatic power transitions.
+Unfinished records restored when the app starts are separated from the current list when there is no current connection evidence. Use **목록 옵션 → 이전 실행 기록 보기** (Show historical unconfirmed and interrupted records) to inspect them. The notice shows how many are hidden and explicitly states that they still block automatic power transitions.
 
-**작업 상태 새로고침** (Recheck connections) reads new lifecycle events and checks Claude's local session registry. A Claude connection is confirmed only when the session ID, PID and exact Windows process creation time match; stale PID files and reused PIDs do not prove a connection. A connected process is not evidence that its job is running or finished. The selected detail shows connection evidence and the last status-event time. New events bring a restored job back into the current list. Active jobs are never hidden just because they are old.
+**작업 새로고침** (Recheck connections) reads new lifecycle events and checks Claude's local session registry. A Claude connection is confirmed only when the session ID, PID and exact Windows process creation time match; stale PID files and reused PIDs do not prove a connection. A connected process is not evidence that its job is running or finished. The selected detail shows connection evidence and the last status-event time. New events bring a restored job back into the current list. Active jobs are never hidden just because they are old.
 
 This is a display separation, not deletion or automatic completion. Missing/inaccessible registry data remains unconfirmed. The existing unknown-state power blocker is preserved; hiding an old record does not enable shutdown. After checking the original AI window, you can select an inactive unknown or interrupted job and explicitly confirm that it ended. The app does not automatically discard unresolved background jobs.
 
@@ -64,13 +73,13 @@ For Claude sessions already observed through hooks, the app matches the session 
 
 ### Readable controls and saved-setting feedback
 
-The app uses larger Korean fonts, stronger text contrast, wider rows and additional line spacing. Under `설정 열기 → 화면·시작 설정` (Open settings → Display and startup), choose `밝은 모드 / 다크 모드` (Light / Dark) for the theme and `기본 / 크게 / 아주 크게` (Default / Large / Extra large) for text size. Both apply immediately and survive restarts without changing power settings, job states or unsaved power-setting edits. Open diagnostics and dropdown menus also follow the selected theme.
+The app uses larger Korean fonts, stronger text contrast, wider rows and additional line spacing. Under `추가 설정 → 화면·시작` (Open settings → Display and startup), choose `밝은 모드 / 다크 모드` (Light / Dark) for the theme and `기본 / 크게 / 아주 크게` (Default / Large / Extra large) for text size. Both apply immediately and survive restarts without changing power settings, job states or unsaved power-setting edits. Open diagnostics and dropdown menus also follow the selected theme.
 
 ![Dark mode and theme selection](docs/images/dark-settings.png)
 
 Wide windows show the job list and detail side by side; narrow windows stack them. Scroll the page for controls below the fold, and use the list's horizontal scrollbar or resize columns for long titles.
 
-After `변경 내용 저장` (Save settings), a checkmark, timestamp and saved values appear near the button. Edited values are labeled unsaved, while the header continues to show the applied policy. Failed saves retain the previous policy. Saving a time/action does not change the execution mode.
+After `저장` (Save settings), a checkmark, timestamp and saved values appear near the button. Edited values are labeled unsaved, while the header continues to show the applied policy. Failed saves retain the previous policy. Saving a time/action does not change the execution mode.
 
 ![Mode selection, saved values and readable settings](docs/images/settings.png)
 
@@ -120,7 +129,7 @@ Settings are grouped into **Power behavior**, **Codex·Claude detection** and **
 | `자동 관리 켜기 / 끄기` | Enable / stop sleep protection during AI work and the configured completion action |
 | `Codex·Claude 감지 설정` | Back up existing AI settings and add job start/end notifications to this app |
 | `이 앱의 감지 설정 제거` | Remove this app's notifications and stop automatic management |
-| `작업 상태 새로고침` | Read the latest job records; never infer completion |
+| `작업 새로고침` | Read the latest job records; never infer completion |
 | `이전 실행에서 완료를 확인하지 못한 작업 보기` | Show older jobs without a confirmed end; hiding them does not remove power blockers |
 | `상태·오류 확인` | Open a read-only summary and detailed record, with a local copy button |
 
@@ -135,7 +144,7 @@ Settings are grouped into **Power behavior**, **Codex·Claude detection** and **
 3. Click `Codex·Claude 감지 설정` (Connect AI job detection). Existing user settings are preserved and privately backed up before observer hooks are added.
 4. Restart the AI apps and terminal sessions, and complete any hook trust review requested by those tools. Already-running sessions can have missing events.
 5. Run a short task and check the job list and `상태·오류 확인` (Diagnostics). A saved connection configuration is not proof that events are arriving.
-6. Choose a delay of **1–120 whole minutes** and `절전` (Sleep) or `정상 종료` (Normal shutdown), then click `변경 내용 저장` (Save settings). The default delay is 10 minutes and the default action is sleep.
+6. Choose a delay of **1–120 whole minutes** and `절전` (Sleep) or `정상 종료` (Normal shutdown), then click `저장` (Save settings). The default delay is 10 minutes and the default action is sleep.
 7. In Settings → Power behavior, select `실제 전원 제어` (Actual power control). Selection applies immediately. Windows requests administrator consent; approve it to reopen the app using the same data directory. Cancelling keeps the existing mode and pause state.
 8. Check the applied mode and `자동 관리 켜기` (Enable automatic management). Switching modes does not resume previously paused management. Actual shutdown privilege is still checked separately.
 9. Keep the app open or minimized. External sleep-prevention requests can defer sleep, but do not block normal shutdown.

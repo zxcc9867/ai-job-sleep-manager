@@ -133,7 +133,7 @@ class ReadableUITests(unittest.TestCase):
             try:
                 w.render_jobs()
                 self.assertEqual(len(w.table.get_children()),1)
-                self.assertIn('로그인 오류 수정',w.details.get('1.0','end'))
+                self.assertIn('로그인 오류 수정',w.table.item('codex:s','text'))
                 self.assertIn('[진행] 회귀 테스트',w.details.get('1.0','end'))
                 with patch('sleep_manager.ui.simpledialog.askstring',return_value='내 로그인 수정'): w.rename_job()
                 self.assertIn('내 로그인 수정',w.table.item('codex:s')['text'])
