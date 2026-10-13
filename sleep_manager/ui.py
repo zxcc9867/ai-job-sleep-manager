@@ -247,6 +247,8 @@ class Window:
         self.label(brand,'작업 중에는 깨워 두고, 끝나면 쉬게 합니다',self.palette.muted,8,anchor='w').pack(fill='x')
         self.settings_button=self.button(self.header_controls,'추가 설정  ▾',self.toggle_settings,
             help_text='전원 동작, Codex·Claude 작업 감지, 화면·로그인 시작 설정을 확인합니다.'); self.settings_button.pack(side='right',padx=8)
+        self.logs_button=self.button(self.header_controls,'로그 보기',lambda:self.diagnose(show_logs=True),
+            help_text='최근 AI 상태 이벤트와 절전·종료 처리 기록을 읽기 전용 창에서 확인합니다.'); self.logs_button.pack(side='right')
 
         overview=tk.Frame(shell,bg=self.palette.card,highlightbackground=self.palette.border,highlightthickness=1,padx=20,pady=18)
         self.overview=overview
@@ -862,7 +864,7 @@ class Window:
         except Exception as exc:
             messagebox.showerror('연결 해제 오류',str(exc),parent=self.root)
 
-    def diagnose(self):
+    def diagnose(self,show_logs=False):
         try:
             data=self.controller.diagnostics()
             data['administrator']=self.admin
@@ -877,6 +879,7 @@ class Window:
             data['recent_events']=self.controller.recent_events
             data['power_events']=self.controller.store.power_events()
             self.show_diagnostics(data)
+            if show_logs: self.diagnostic_tabs.select(1)
         except Exception as exc:
             messagebox.showerror('진단 오류',str(exc),parent=self.root)
 
@@ -892,7 +895,7 @@ class Window:
         self.label(body,'상태·오류 확인',size=13,bold=True,anchor='w').pack(fill='x')
         self.label(body,'현재 상태와 로컬 기록을 읽는 화면입니다. 전원 설정이나 작업 상태를 바꾸지 않습니다.',self.palette.muted,9,
             anchor='w',justify='left',wraplength=700).pack(fill='x',pady=(6,16))
-        tabs=ttk.Notebook(body);tabs.pack(fill='both',expand=True)
+        tabs=ttk.Notebook(body);self.diagnostic_tabs=tabs;tabs.pack(fill='both',expand=True)
         summary=tk.Frame(tabs,bg=self.palette.card,padx=12,pady=14)
         technical=tk.Frame(tabs,bg=self.palette.card)
         tabs.add(summary,text='읽기 쉬운 요약');tabs.add(technical,text='상세 기록')

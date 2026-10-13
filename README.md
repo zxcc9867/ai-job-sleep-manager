@@ -132,6 +132,7 @@ Settings are grouped into **Power behavior**, **Codex·Claude detection** and **
 | `작업 새로고침` | Read the latest job records; never infer completion |
 | `이전 실행에서 완료를 확인하지 못한 작업 보기` | Show older jobs without a confirmed end; hiding them does not remove power blockers |
 | `상태·오류 확인` | Open a read-only summary and detailed record, with a local copy button |
+| `로그 보기` (main screen) | Open detailed AI status events and power-action logs directly; settings and management stay unchanged |
 
 ![AI detection settings and button explanations](docs/images/detection.png)
 
