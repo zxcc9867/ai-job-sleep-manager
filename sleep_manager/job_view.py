@@ -1,6 +1,8 @@
 """Read-only display metadata. Never feeds titles or plans into power decisions."""
 import json
+import re
 from pathlib import Path
+from .providers import provider_identity
 import sqlite3
 import time
 import unicodedata
@@ -131,13 +133,16 @@ class JobCatalog:
 
 
 def job_row(job,info,action):
-    tool='Codex' if job.provider=='codex' else 'Claude Code'
+    tool=provider_identity(job.provider).name
     category=('running' if job.active else 'unknown' if job.state=='unknown' or job.unknown_children else job.state)
     state={'running':'작업 중','waiting':'응답 필요','unknown':'확인 필요','interrupted':'재부팅 전 미확인','complete':'완료','idle':'연결됨'}[category]
     if job.active and job.state!='running': state='하위 작업 중'
-    title=clean_text(info.get('label')) or clean_text(info.get('title'))
+    original_title=clean_text(info.get('title'))
+    label=clean_text(info.get('label'))
+    title=label or original_title
     project=clean_text(info.get('project')) or clean_text(getattr(job,'project','')) or '프로젝트 미확인'
-    if not title: title=f'{tool} 작업 · {job.session_id[:8]}'
+    if not label and (not title or re.fullmatch(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}',title)):
+        title=clean_text(info.get('latest_request'),80) or f'{tool} 작업 · 제목 미제공'
     plan=info.get('plan',[]) if category!='complete' else []
     done=sum(p['status']=='completed' for p in plan)
     remaining_steps=[p for p in plan if p['status']!='completed']
@@ -167,7 +172,7 @@ def job_row(job,info,action):
     else:
         reason='세션이 연결되었습니다. 실제 작업 시작을 기다립니다.'
         remaining='작업 시작 대기'
-    return dict(key=job.provider+':'+job.session_id,tool=tool,title=title,project=project,state=state,
+    return dict(key=job.provider+':'+job.session_id,provider=job.provider,tool=tool,title=title,original_title=original_title,project=project,state=state,
                 category=category,pending=category in ('running','waiting','unknown','interrupted'),remaining=remaining,
                 reason=reason,plan=plan,plan_done=done,plan_total=len(plan),session_id=job.session_id,
                 parent_id=info.get('parent_id',''),**activity_fields(info,category))

@@ -19,6 +19,7 @@ from . import startup
 from .power_state import action_message
 from .relaunch import is_administrator, request_admin_relaunch
 from .themes import PALETTES, THEME_LABELS
+from .providers import provider_identity
 
 BG='#f3f5f8'
 CARD='#ffffff'
@@ -51,6 +52,8 @@ class Window:
         self.theme_name=self.controller.store.theme()
         self.palette=PALETTES[self.theme_name]
         self.themed_buttons=[]
+        self.provider_icons={}
+        self.detail_job_key=None
         self.root=tk.Tk()
         self.root.title('AI Job Sleep Manager')
         height=min(980,max(560,self.root.winfo_screenheight()-80))
@@ -154,6 +157,7 @@ class Window:
             self.details.tag_configure(tag,foreground=color)
         self.theme_feedback.config(text=self.theme_choice.get()+' 적용됨 · 다음 실행에도 유지됩니다.',fg=self.palette.success)
         self.update_settings_feedback()
+        self.refresh_provider_icons()
 
     def style_button(self,button,primary,hover=False):
         p=self.palette
@@ -180,7 +184,31 @@ class Window:
         for (original,bold),font in self.fonts.items():
             font.configure(size=FONT_SIZES.get(original,original)+size-12)
         self.style.configure('Treeview',rowheight=self.font(10).metrics('linespace')+22)
+        self.refresh_provider_icons()
         self.layout_panels(self.page_canvas.winfo_width())
+
+    def provider_icon(self,provider):
+        identity=provider_identity(provider)
+        color=identity.dark if self.theme_name=='dark' else identity.light
+        size=max(24,self.font(10).metrics('linespace')+4)
+        key=(identity.glyph,color,size)
+        if key not in self.provider_icons:
+            icon=tk.PhotoImage(master=self.root,width=size,height=size)
+            height=len(identity.glyph); width=len(identity.glyph[0])
+            for y,row in enumerate(identity.glyph):
+                for x,pixel in enumerate(row):
+                    if pixel=='1':
+                        icon.put(color,to=(x*size//width,y*size//height,
+                            (x+1)*size//width,(y+1)*size//height))
+            self.provider_icons[key]=icon
+        return self.provider_icons[key]
+
+    def refresh_provider_icons(self):
+        for key,row in self.job_rows.items():
+            if self.table.exists(key): self.table.item(key,image=self.provider_icon(row['provider']))
+        selected=self.table.selection()
+        row=self.job_rows.get(selected[0]) if selected else None
+        if row: self.detail_provider.config(image=self.provider_icon(row['provider']))
 
     def layout_panels(self,width):
         if not hasattr(self,'panels'): return
@@ -389,8 +417,8 @@ class Window:
         self.label(left_header,'작업 목록',size=11,bold=True).pack(side='left')
         self.label(left_header,'▾ 하위 작업 펼치기',self.palette.muted,8).pack(side='right')
         table_frame=tk.Frame(left,bg=self.palette.card); table_frame.pack(fill='both',expand=True,padx=1)
-        self.table=ttk.Treeview(table_frame,columns=('tool','latest_request','state','current_activity'),displaycolumns=('latest_request','state'),show='tree headings',height=6)
-        for col,title,width in [('#0','대화 · 하위 작업',225),('tool','도구',85),('latest_request','최근 지시',175),('state','상태',105),('current_activity','현재 활동',220)]:
+        self.table=ttk.Treeview(table_frame,columns=('tool','latest_request','state','current_activity'),displaycolumns=('state',),show='tree headings',height=6)
+        for col,title,width in [('#0','AI · 작업 / 하위 작업',330),('tool','AI',110),('latest_request','최근 지시',175),('state','상태',105),('current_activity','현재 활동',220)]:
             self.table.heading(col,text=title,anchor='w'); self.table.column(col,width=width,minwidth=width,anchor='w')
         horizontal=ttk.Scrollbar(left,orient='horizontal',command=self.table.xview)
         horizontal.pack(side='bottom',fill='x',padx=8)
@@ -408,11 +436,13 @@ class Window:
         detail_header=tk.Frame(right,bg=self.palette.card,padx=14,pady=10); detail_header.pack(fill='x')
         self.label(detail_header,'선택한 작업',size=11,bold=True).pack(side='left')
         self.detail_badge=self.label(detail_header,'선택 없음',self.palette.muted,9); self.detail_badge.pack(side='right')
+        self.detail_provider=self.label(right,'목록에서 작업을 선택하세요.',self.palette.text,10,True,anchor='w',compound='left',padx=8)
+        self.detail_provider.pack(fill='x',padx=14,pady=(0,4))
         self.details=tk.Text(right,width=1,height=12,bg=self.palette.card,fg=self.palette.text,relief='flat',wrap='word',font=self.font(11),padx=20,pady=16,state='disabled',spacing1=3,spacing2=3,spacing3=5,insertbackground=self.palette.accent,selectbackground=self.palette.selected,selectforeground=self.palette.text)
         detail_scroll=ttk.Scrollbar(right,orient='vertical',command=self.details.yview)
         self.details.configure(yscrollcommand=detail_scroll.set)
         detail_scroll.pack(side='right',fill='y'); self.details.pack(fill='both',expand=True)
-        for tag,color,size,bold in [('heading',self.palette.accent,10,True),('request',self.palette.text,12,True),('muted',self.palette.muted,9,False)]:
+        for tag,color,size,bold in [('heading',self.palette.accent,10,True),('request',self.palette.text,11,False),('muted',self.palette.muted,9,False)]:
             self.details.tag_configure(tag,foreground=color,font=self.font(size,bold))
         detail_footer=tk.Frame(self.workspace,bg=self.palette.bg); detail_footer.pack(fill='x',pady=(10,0))
         self.notice=self.label(detail_footer,'작업이 표시되지 않나요? 추가 설정 → AI 감지에서 알림을 설정하세요.',self.palette.muted,8,anchor='w',wraplength=760,justify='left'); self.notice.pack(side='left',fill='x',expand=True)
@@ -567,13 +597,14 @@ class Window:
             if self.table.exists(key): self.table.delete(key)
         for row in visible:
             values=tuple(row[field] for field in ('tool','request_display','state','current_activity'))
-            text=row['title']
+            title='제목 미제공' if row['title']==row['tool']+' 작업 · 제목 미제공' else row['title']
+            text='  '+row['tool']+'  ·  '+title
             if row['child_count']: text+=f"  · 하위 {row['child_count']}개"
             if row['is_child'] and not row['parent_key']: text+='  (부모 미확인)'
             if self.table.exists(row['key']):
-                self.table.item(row['key'],text=text,values=values,tags=(row['category'],))
+                self.table.item(row['key'],text=text,image=self.provider_icon(row['provider']),values=values,tags=(row['category'],))
             else:
-                self.table.insert('',tk.END,iid=row['key'],text=text,values=values,tags=(row['category'],),open=True)
+                self.table.insert('',tk.END,iid=row['key'],text=text,image=self.provider_icon(row['provider']),values=values,tags=(row['category'],),open=True)
             self.table.move(row['key'],row['parent_key'],tk.END)
         self.table.yview_moveto(scroll_position)
         remaining_selection=[key for key in selected if key in wanted]
@@ -583,12 +614,18 @@ class Window:
             self.confirm_button.config(state='disabled')
             self.confirm_button.pack_forget()
             self.detail_badge.config(text='선택 없음',fg=self.palette.muted)
+            self.detail_provider.config(text='목록에서 작업을 선택하세요.',image='')
             self.set_detail('현재 표시할 작업이 없습니다. 목록 옵션에서 완료·이전 작업을 볼 수 있습니다.' if rows else '새 AI 작업을 기다리고 있습니다.\n\n작업이 표시되지 않으면 추가 설정 → AI 감지에서 알림을 설정하고, AI 앱·터미널에서 새 작업을 시작하세요.')
         else:
             self.show_job_details()
 
     def set_detail(self,text):
-        if text==self.detail_text: return
+        selected=self.table.selection()
+        key=selected[0] if selected else None
+        same_job=key==self.detail_job_key
+        if text==self.detail_text and same_job: return
+        position=self.details.yview()[0] if same_job else 0
+        self.detail_job_key=key
         self.detail_text=text
         self.details.config(state='normal')
         self.details.delete('1.0',tk.END); self.details.insert('1.0',text)
@@ -596,11 +633,14 @@ class Window:
             tag=('request' if line.startswith(('최근 지시:','상위 사용자 지시:')) else 'heading' if line.startswith(('현재 활동:','AI의 최근 설명:','최근 실행 흐름','AI가 공유한 계획:','남은 하위 작업')) else 'muted' if line.startswith(('관측 시점:','설명 기록 시각:','대화 제목:','세션 ID:')) else None)
             if tag: self.details.tag_add(tag,f'{line_number}.0',f'{line_number}.end')
         self.details.config(state='disabled')
+        self.details.yview_moveto(position)
 
     def show_job_details(self,event=None):
         selected=self.table.selection()
         row=self.job_rows.get(selected[0]) if selected else None
         if not row: return
+        role='하위 작업' if row['is_child'] else '메인 작업'
+        self.detail_provider.config(text=f"  {row['tool']} · {row['project']} · {role}",image=self.provider_icon(row['provider']))
         self.detail_badge.config(text=row['state'],fg={'running':self.palette.accent,'waiting':self.palette.amber,'unknown':self.palette.amber,'interrupted':self.palette.amber}.get(row['category'],self.palette.muted))
         job=self.controller.engine.jobs.get(row['key'])
         confirmable=bool(job and job.state in ('unknown','interrupted') and not job.active)
@@ -613,6 +653,7 @@ class Window:
                 lines.append('하위 지시 본문은 기록에 제공되지 않았습니다. 아래는 이 에이전트의 공개 설명입니다.')
             else: lines.append('최근 지시: '+row['latest_request'])
         else: lines=[('과거 기록의 마지막 지시: ' if row.get('historical') else '최근 지시: ')+row['latest_request']]
+        lines=['현재 활동: '+row['current_activity'],'']+lines
         if self.show_records.get():
             lines.extend(['',row.get('connection',''),'마지막 상태 이벤트: '+row.get('last_event','시각 미제공')])
         if row.get('historical'):
@@ -625,7 +666,6 @@ class Window:
             current=next((p['step'] for p in row['plan'] if p['status']=='in_progress'),'')
             lines.extend(['', 'AI의 최근 설명:',
                 '공유된 계획의 현재 단계: '+current if current else '이 지시에 대한 공개 진행 설명이 아직 없습니다.'])
-        lines.extend(['', '현재 활동: '+row['current_activity']])
         if self.show_records.get(): lines.append('관측 시점: '+row['activity_updated'])
         if row['child_work']:
             lines.extend(['', '남은 하위 작업 · 수행 내용:'])
@@ -634,7 +674,7 @@ class Window:
                 if self.show_records.get():
                     lines.append('    설명 기록 시각: '+child['commentary_at'] if child['commentary_at'] else '    '+child['updated'])
         if self.show_records.get():
-            lines.extend(['', '대화 제목: '+row['title'],row['tool']+'  ·  '+row['project']+'  ·  '+row['state']])
+            lines.extend(['', '대화 제목: '+(row['original_title'] or row['title']),row['tool']+'  ·  '+row['project']+'  ·  '+row['state']])
         if row['relation']: lines.append(row['relation'])
         if row['child_count']: lines.append(f"이 작업에 연결된 하위 작업 {row['child_count']}개 · 목록에서 각 상태를 확인하세요.")
         lines.append(row['reason'])

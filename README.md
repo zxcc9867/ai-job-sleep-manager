@@ -39,6 +39,12 @@ For developers who leave Codex or Claude Code working while they step away. The 
 
 ### Understand which jobs remain
 
+Each row always shows an AI icon **and its name**: a terminal mark for Codex and a starburst for Claude Code. The selected-job header also shows the AI, project and whether it is a main or child job. These are app identification symbols, not downloaded official logos.
+
+Display identities live in `sleep_manager/providers.py`. A future adapter can reuse this registry; an unregistered provider gets a generic AI icon and its ID, never another AI's name. Adding a display identity alone does **not** add job detection for that AI.
+
+UUID-only automatic titles use the observed latest instruction when available. The detail panel puts current activity first, uses regular text for long instructions and keeps your scroll position when the same job refreshes.
+
 The dashboard separates main jobs from child jobs, with counts for running, awaiting input, unknown and completed states. Expand a parent to see its children; select a row to read the latest instruction and public progress explanation. Completed jobs are hidden by default and can be shown with the checkbox.
 
 - **Instruction → activity:** distinguish the conversation title from your latest instruction, such as “continue,” and the observed work, such as reading a file or running a command.
