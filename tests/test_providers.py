@@ -39,4 +39,3 @@ class ProviderIdentityTests(unittest.TestCase):
         self.assertEqual(provider_identity('').name,'알 수 없는 AI')
         self.assertNotIn('\n',provider_identity('future\nAI').name)
         self.assertEqual(provider_identity('claude').name,'Claude Code')
-
