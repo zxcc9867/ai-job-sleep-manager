@@ -76,7 +76,7 @@ class SettingsFeedbackUITests(unittest.TestCase):
                 self.assertIn('10분',w.applied_summary.cget('text'))
             finally:w.close()
 
-    def test_live_unknown_waiting_and_paused_do_not_claim_shutdown_is_armed(self):
+    def test_unknown_and_paused_block_but_waiting_explains_unanswered_shutdown(self):
         with tempfile.TemporaryDirectory() as d:
             c,w=self.make(d)
             try:
@@ -87,6 +87,12 @@ class SettingsFeedbackUITests(unittest.TestCase):
                 c._accept(dict(provider='claude',session_id='s',kind='waiting'))
                 w.update_settings_feedback()
                 self.assertIn('답변',w.execution_status.cget('text'))
+                self.assertIn('응답이 없어도',w.execution_status.cget('text'))
+                self.assertNotIn('종료 보류',w.execution_status.cget('text'))
+                c._accept(dict(provider='codex',session_id='other',kind='start'))
+                w.update_settings_feedback()
+                self.assertIn('보호',w.execution_status.cget('text'))
+                self.assertNotIn('응답이 없어도',w.execution_status.cget('text'))
                 c.engine.set_enabled(False,0);w.update_settings_feedback()
                 self.assertIn('꺼져',w.status_label.cget('text'))
             finally:w.close()

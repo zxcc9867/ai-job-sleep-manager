@@ -185,12 +185,16 @@ If Windows restarts and an observed AI job has no confirmed end event from befor
 | --- | --- | --- |
 | No jobs have been observed yet | Wait; no countdown | Wait; no countdown |
 | At least one main/child/background job is running | Prevent automatic sleep; cancel countdown | Same |
-| Jobs await human input/approval; none are running | Eligible for sleep after the delay | Do not schedule shutdown; allow existing Windows sleep policy |
+| Jobs await human input/approval; none are running or unknown | Eligible for sleep after the delay | Request normal shutdown after the delay, even without an answer |
 | All observed work has finished | Request sleep after the delay | Request normal shutdown after the delay |
 | A pre-restart job has no confirmed end, or its state is unknown | Hold the transition until the user verifies the original AI session and confirms that job has ended | Same |
 | New activity or mouse/keyboard input during countdown | Cancel/reset the countdown | Same |
 | Job state is unknown | Hold transition; temporary recovery protection | Do not request shutdown |
 | Pause or close this app | Release this app's prevention request | Same |
+
+**Unanswered input waits:** with actual power control, normal shutdown and automatic management enabled, the app starts the configured delay when only finished or input-waiting jobs remain. It can request shutdown without an answer. Entering a new wait starts a full delay; repeated reports of the same wait do not extend it indefinitely. Resumed work or mouse/keyboard input resets the timer. Waiting jobs keep their waiting state; the app does not answer or approve for you.
+
+![Example: normal shutdown countdown with unanswered Codex and Claude waits](docs/images/waiting-shutdown.png)
 
 ![Simulated sleep countdown](docs/images/countdown.png)
 
@@ -244,7 +248,7 @@ Before moving the app: disconnect at the old location, restart AI sessions, clos
 | Claude job is visible but its content is missing | A matching local transcript and recent user-message boundary are needed. Check `claude_display_status` in Diagnostics. Child-agent details and remote transcripts are not supported. |
 | No job appears | Connect, restart AI sessions, complete hook trust review and check new events in Diagnostics. A transcript alone does not register a running Claude job. |
 | Generic job title | Use project name/session ID to identify it and assign a custom name. Claude automatic titles are unavailable. |
-| Settings saved but no shutdown | Check observation mode, paused management, unknown jobs, input/approval waits and actual shutdown privilege. Saving does not enable actual control. External sleep-prevention requests do not block normal shutdown. |
+| Settings saved but no shutdown | Check observation mode, paused management, running/unknown jobs and actual shutdown privilege. Input/approval waits alone do not block shutdown. Saving does not enable actual control. External sleep-prevention requests do not block normal shutdown. |
 | `unobserved` appears as a job | Update to the current build. `unobserved` was a placeholder created from an open AI process, not a real session. Open apps no longer create job rows; use **Connect AI job detection** and start a new AI session if work is not detected. |
 | Countdown keeps resetting | New work or user input resets the full delay. |
 | No administrator button | Select Actual power control; Windows permission approval and relaunch are handled automatically. Cancelling preserves the existing mode. |

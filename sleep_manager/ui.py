@@ -35,7 +35,7 @@ MODES={
  'idle':('작업을 기다리고 있어요','AI 작업이 시작되면 자동으로 절전을 막습니다.'),
  'running':('AI가 작업 중이에요','작업이 진행되는 동안 컴퓨터를 깨어 있게 합니다.'),
  'countdown':('이제 쉴 준비를 해요','새 작업이나 마우스·키보드 입력이 있으면 대기 시간을 다시 계산합니다.'),
- 'waiting':('입력 대기 작업이 남아 있어요','정상 종료는 모든 작업이 끝난 뒤에만 요청합니다. 지금은 Windows의 기존 절전 정책을 따릅니다.'),
+ 'waiting':('입력 대기 작업이 남아 있어요','실행·미확인 작업이 없으면 답변이 없어도 설정 시간 후 선택한 전원 동작을 요청합니다.'),
  'paused':('자동 관리가 멈춰 있어요','현재는 Windows의 기존 전원 설정을 따릅니다.'),
  'unknown':('작업 상태를 확인 중이에요','확인되지 않은 작업을 완료로 판단하지 않습니다. 복구 유예 중입니다.'),
  'fault':('자동 관리에 확인이 필요해요','감지 복구 유예가 끝나 Windows의 기존 전원 설정을 따릅니다.'),
@@ -501,10 +501,11 @@ class Window:
             title,description=MODES[status.mode]
             shutdown=self.controller.engine.action=='shutdown'
             self.metric_titles[2].config(text='종료 요청까지' if shutdown else '절전까지')
-            self.policy_note.config(text=('정상 종료: 입력·승인 대기도 끝나야 합니다. 저장 확인 앱은 강제로 닫지 않으며, 종료 요청 후 자동 관리는 중지됩니다.' if shutdown else '절전: 모든 작업이 완료되거나 입력 대기일 때 시간을 셉니다. 새 작업이 시작되면 예약을 취소합니다.'))
+            self.policy_note.config(text=('정상 종료: 입력·승인 대기만 남아도 응답 없이 설정 시간 후 종료를 요청합니다. 새 작업·입력은 예약을 취소합니다. 저장 확인 앱은 강제로 닫지 않습니다.' if shutdown else '절전: 모든 작업이 완료되거나 입력 대기일 때 시간을 셉니다. 새 작업이 시작되면 예약을 취소합니다.'))
             if shutdown and status.mode=='countdown':
                 title='정상 종료를 준비하고 있어요'
-                description=f'작업 완료 후 {int(self.controller.engine.delay/60)}분 뒤 정상 종료합니다. 새 작업이나 사용자 입력이 있으면 시간을 다시 계산합니다.'
+                condition='답변·승인 대기만 남아도 응답 없이' if status.waiting else '작업 완료 후'
+                description=f'{condition} {int(self.controller.engine.delay/60)}분 대기 후 정상 종료를 요청합니다. 새 작업이나 사용자 입력이 있으면 시간을 다시 계산합니다.'
             power_message=action_message(self.controller.power_action,self.controller.clock()) if shutdown else ''
             if power_message:
                 title=('종료 준비를 다시 확인하고 있어요' if self.controller.power_action.phase=='deferred'
@@ -742,7 +743,7 @@ class Window:
         engine=self.controller.engine
         action='정상 종료' if engine.action=='shutdown' else '절전'
         applied=f'{int(engine.delay/60)}분 후 {action}'
-        condition='모든 작업 완료' if engine.action=='shutdown' else '작업 완료·입력 대기'
+        condition='작업 완료·입력 대기'
         self.applied_summary.config(text=f'{condition}  →  {int(engine.delay/60)}분 대기  →  {action}')
         self.pause.config(text='자동 관리 끄기' if engine.enabled else '자동 관리 켜기')
         self.mode_badge.config(text='미리보기 · 실제 절전·종료 안 함' if self.controller.power.dry_run else '실제 전원 제어',fg=self.palette.muted)
@@ -778,6 +779,7 @@ class Window:
         unknown=sum(j.state=='unknown' or bool(j.unknown_children) for j in jobs)
         interrupted=sum(j.state=='interrupted' for j in jobs)
         waiting=sum(j.state=='waiting' and not j.active for j in jobs)
+        running=sum(j.active for j in jobs)
         if self.controller.power.dry_run:
             execution='동작을 미리 보여줍니다. 실제 전원은 바꾸지 않습니다.'
             if unknown: execution+=f' 완료 확인 필요 {unknown}개.'
@@ -793,8 +795,10 @@ class Window:
             execution=f'전원 전환 보류 · 재부팅 전 종료 미확인 작업 {interrupted}개. 원래 AI 창에서 결과를 확인해 주세요.'; color=self.palette.amber
         elif unknown:
             execution=f'전원 전환 보류 · 확인 필요 작업 {unknown}개. 실행 종료 여부를 먼저 확인해야 합니다.'; color=self.palette.amber
-        elif waiting and engine.action=='shutdown':
-            execution=f'정상 종료 보류 · 사용자 답변·승인 대기 {waiting}개가 남아 있습니다.'; color=self.palette.amber
+        elif running:
+            execution=f'실행 중인 작업 {running}개를 보호합니다. 모든 실행 작업이 끝나거나 입력 대기일 때 시간을 셉니다.'; color=self.palette.muted
+        elif waiting:
+            execution=f'사용자 답변·승인 대기 {waiting}개 · 응답이 없어도 {applied}를 요청합니다.'; color=self.palette.amber
         elif not engine.seen_work:
             execution='새 AI 작업을 기다립니다.'; color=self.palette.muted
         else:

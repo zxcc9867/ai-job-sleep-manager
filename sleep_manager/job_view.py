@@ -157,7 +157,7 @@ def job_row(job,info,action):
             reason='메인 답변은 끝났지만 Claude가 백그라운드 작업을 보고했습니다. 최종 종료가 확인될 때까지 전원 전환을 보류합니다.'
             remaining='백그라운드 작업 종료 확인 대기'
     elif category=='waiting':
-        reason=('사용자 답변·승인이 남아 있어 정상 종료하지 않습니다.' if action=='shutdown' else '사용자 답변·승인을 기다립니다. 다른 실행 작업이 없으면 절전 대기를 시작합니다.')
+        reason=('사용자 답변·승인을 기다립니다. 다른 실행·미확인 작업이 없으면 응답이 없어도 설정 시간 후 정상 종료를 요청합니다.' if action=='shutdown' else '사용자 답변·승인을 기다립니다. 다른 실행 작업이 없으면 절전 대기를 시작합니다.')
         remaining='사용자 답변 또는 승인 필요'
     elif category=='unknown':
         reason='작업 종료를 확인할 정보가 부족합니다. 연결과 원래 AI 창을 확인해 주세요.'

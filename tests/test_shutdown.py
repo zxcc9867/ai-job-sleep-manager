@@ -21,8 +21,8 @@ class ShutdownPolicyTests(unittest.TestCase):
         e.tick(0,1000)
         self.assertTrue(e.tick(60,1000).sleep_due)
 
-    def test_shutdown_waits_for_human_waiting_and_unknown(self):
-        for kind in ('waiting','unknown'):
+    def test_shutdown_still_waits_for_unknown_and_interrupted_jobs(self):
+        for kind in ('unknown','interrupted'):
             e=Engine(delay=60,action='shutdown')
             e.ingest(dict(provider='codex',session_id='s',kind=kind),0)
             self.assertFalse(e.tick(5000,5000).sleep_due)

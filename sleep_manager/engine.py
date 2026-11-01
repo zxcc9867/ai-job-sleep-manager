@@ -138,6 +138,8 @@ class Engine:
             self.baseline = None
         else:
             job.awaiting_claude_background = False
+            if kind == 'waiting' and job.state != 'waiting':
+                self.baseline = None
             job.state = 'waiting' if kind == 'waiting' else 'complete'
             job.unknown_since = None
         if kind == 'complete' and event.get('source') == 'user-confirmed':
@@ -190,9 +192,6 @@ class Engine:
         if interrupted:
             self.baseline = None
             return Decision('interrupted', False, **counts)
-        if self.action == "shutdown" and waiting:
-            self.baseline = None
-            return Decision("waiting", False, **counts)
         if not self.seen_work:
             return Decision('idle', False, **counts)
         if self.baseline is None:
