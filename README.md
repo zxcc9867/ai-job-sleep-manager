@@ -2,6 +2,10 @@
 
 **English** | [한국어](README.ko.md) | [日本語](README.ja.md)
 
+<img src="docs/images/app-icon.png" width="80" height="80" alt="App icon: a monitor with a crescent moon and activity light">
+
+The monitor-and-moon icon identifies the app in its window, Windows taskbar, executable, and desktop shortcut. [Icon assets and generation prompt](docs/design/app-icon.md).
+
 **Keep your Windows PC awake while AI development jobs run, then request sleep or a normal shutdown after the jobs finish.**
 
 For developers who leave Codex or Claude Code working while they step away. The app watches observed job activity rather than treating an open AI window as an active job.

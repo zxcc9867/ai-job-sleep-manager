@@ -2,6 +2,10 @@
 
 [English](README.md) | **한국어** | [日本語](README.ja.md)
 
+<img src="docs/images/app-icon.png" width="80" height="80" alt="모니터 안에 초승달과 작업 표시등이 있는 앱 아이콘">
+
+모니터·초승달 아이콘으로 앱 창, Windows 작업 표시줄, 실행 파일, 바탕화면 바로가기를 구분할 수 있습니다. [아이콘 자산과 제작 프롬프트](docs/design/app-icon.md).
+
 **AI가 일하는 동안 PC를 깨어 있게 하고, 작업이 끝나면 설정한 시간 후 절전 또는 정상 종료를 요청하는 Windows 앱입니다.**
 
 Codex와 Claude Code에 긴 개발 작업을 맡긴 채 자리를 비우는 사용자를 위해 만들었습니다. 앱 창이 열려 있는지보다 **실제로 실행 중인 작업이 있는지**를 기준으로 절전을 관리합니다.

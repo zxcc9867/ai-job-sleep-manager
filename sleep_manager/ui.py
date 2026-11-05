@@ -54,8 +54,15 @@ class Window:
         self.themed_buttons=[]
         self.provider_icons={}
         self.detail_job_key=None
+        if os.name=='nt':
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('AIJobSleepManager.Desktop')
         self.root=tk.Tk()
         self.root.title('AI Job Sleep Manager')
+        assets=Path(__file__).with_name('assets')
+        self.app_icon=tk.PhotoImage(master=self.root,file=str(assets/'app-icon.png'))
+        self.app_icon_header=tk.PhotoImage(master=self.root,file=str(assets/'app-icon-header.png'))
+        self.root.iconphoto(True,self.app_icon)
+        if os.name=='nt': self.root.iconbitmap(str(assets/'app-icon.ico'))
         height=min(980,max(560,self.root.winfo_screenheight()-80))
         self.root.geometry(f'{min(1440,self.root.winfo_screenwidth()-60)}x{height}')
         self.root.minsize(900,560)
@@ -267,9 +274,8 @@ class Window:
         top.columnconfigure(0,weight=1)
         self.header_brand=tk.Frame(top,bg=self.palette.bg);self.header_brand.grid(row=0,column=0,sticky='w')
         self.header_controls=tk.Frame(top,bg=self.palette.bg);self.header_controls.grid(row=0,column=1,sticky='e')
-        mark=tk.Canvas(self.header_brand,width=36,height=36,bg=self.palette.bg,highlightthickness=0); mark.pack(side='left',padx=(0,12))
-        mark.create_oval(6,6,30,30,outline=self.palette.accent,width=2)
-        mark.create_line(18,1,18,16,fill=self.palette.accent,width=3)
+        mark=tk.Label(self.header_brand,image=self.app_icon_header,bg=self.palette.bg,borderwidth=0)
+        mark.pack(side='left',padx=(0,12))
         brand=tk.Frame(self.header_brand,bg=self.palette.bg); brand.pack(side='left')
         self.label(brand,'AI 작업 전원 관리',size=20,bold=True,anchor='w').pack(fill='x')
         self.label(brand,'작업 중에는 깨워 두고, 끝나면 쉬게 합니다',self.palette.muted,8,anchor='w').pack(fill='x')
